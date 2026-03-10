@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { resend } from '@/lib/resend/server'
+//import { resend } from '@/lib/resend/server'
+import { Resend } from 'resend'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const runtime = 'nodejs'

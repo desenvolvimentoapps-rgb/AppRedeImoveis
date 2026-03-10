@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Função para escapar caracteres HTML e prevenir XSS
 function escapeHtml(input: string) {
     return input
         .replace(/&/g, '&amp;')
@@ -15,26 +16,41 @@ function escapeHtml(input: string) {
         .replace(/'/g, '&#39;')
 }
 
+// Tipagem para Supabase
+interface CmsSetting {
+    key: string
+    value: { email?: string } // ajuste conforme sua tabela no Supabase
+}
+
+// Função para buscar o email do destinatário no Supabase
 async function getRecipientEmail() {
     const { data } = await supabaseAdmin
-        .from('cms_settings')
+        .from<CmsSetting>('cms_settings')
         .select('key, value')
         .in('key', ['company_info', 'footer_info'])
 
-    const companyInfo = data?.find((item) => item.key === 'company_info')?.value as any
-    const footerInfo = data?.find((item) => item.key === 'footer_info')?.value as any
+    const companyInfo = data?.find((item) => item.key === 'company_info')?.value
+    const footerInfo = data?.find((item) => item.key === 'footer_info')?.value
 
     return footerInfo?.email || companyInfo?.email || null
 }
 
+// Função principal da API
 export async function POST(request: Request) {
     try {
+        if (!process.env.RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY não configurada')
+        }
+
+        const resend = new Resend(process.env.RESEND_API_KEY)
+
         const body = await request.json()
         const name = (body?.name || '').toString().trim()
         const email = (body?.email || '').toString().trim()
         const phone = (body?.phone || '').toString().trim()
         const message = (body?.message || '').toString().trim()
 
+        // Validação básica
         if (!name || !email || !message) {
             return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 })
         }
@@ -44,11 +60,13 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Email de destino não configurado' }, { status: 500 })
         }
 
+        // Escapa HTML
         const safeName = escapeHtml(name)
         const safeEmail = escapeHtml(email)
         const safePhone = escapeHtml(phone)
         const safeMessage = escapeHtml(message)
 
+        // Envia email via Resend
         await resend.emails.send({
             from: 'onboarding@resend.dev',
             to: toEmail,

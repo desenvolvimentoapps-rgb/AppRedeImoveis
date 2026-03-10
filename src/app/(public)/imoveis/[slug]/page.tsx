@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, use, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useParams } from 'next/navigation'
 import { Property, CMSField, CMSSettings } from '@/types/database'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -33,8 +34,10 @@ const resolveIcon = (iconName: string) => {
     return (LucideIcons as any)[pascalName] || (LucideIcons as any)[iconName] || LucideIcons.CheckCircle2
 }
 
-export default function PropertyDetailsPage({ params: paramsPromise }: { params: Promise<{ slug: string }> }) {
-    const params = use(paramsPromise)
+export default function PropertyDetailsPage() {
+    const params = useParams<{ slug: string }>()
+    const rawSlug = params?.slug
+    const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug
     const [property, setProperty] = useState<Property | null>(null)
     const [cmsFields, setCmsFields] = useState<CMSField[]>([])
     const [settings, setSettings] = useState<CMSSettings[]>([])
@@ -56,12 +59,12 @@ export default function PropertyDetailsPage({ params: paramsPromise }: { params:
 
     useEffect(() => {
         const fetchData = async () => {
-            if (!params?.slug) return
+            if (!slug) return
             setIsLoading(true)
 
             // Fetch property, fields, and settings
             const [propRes, fieldRes, settRes] = await Promise.all([
-                supabase.from('properties').select('*, type:property_types(name)').eq('slug', params.slug).single(),
+                supabase.from('properties').select('*, type:property_types(name)').eq('slug', slug).single(),
                 supabase.from('cms_fields').select('*'),
                 supabase.from('cms_settings').select('*')
             ])
@@ -91,7 +94,7 @@ export default function PropertyDetailsPage({ params: paramsPromise }: { params:
             setIsLoading(false)
         }
         fetchData()
-    }, [params?.slug, supabase])
+    }, [slug, supabase])
 
     const companyInfo = useMemo(() => {
         const info = settings.find(s => s.key === 'company_info')?.value

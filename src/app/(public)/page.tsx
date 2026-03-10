@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { toast } from 'sonner'
 
 export default function HomePage() {
     const [properties, setProperties] = useState<Property[]>([])
@@ -31,6 +32,13 @@ export default function HomePage() {
     const [search, setSearch] = useState('')
     const [selectedType, setSelectedType] = useState('all')
     const [dynamicFilters, setDynamicFilters] = useState<Record<string, any>>({})
+
+    // Contact form
+    const [contactName, setContactName] = useState('')
+    const [contactEmail, setContactEmail] = useState('')
+    const [contactPhone, setContactPhone] = useState('')
+    const [contactMessage, setContactMessage] = useState('')
+    const [isSendingContact, setIsSendingContact] = useState(false)
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -99,6 +107,39 @@ export default function HomePage() {
         setSelectedType('all')
         setDynamicFilters({})
         setPage(1)
+    }
+
+    const handleContactSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setIsSendingContact(true)
+
+        try {
+            const response = await fetch('/api/contact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: contactName,
+                    email: contactEmail,
+                    phone: contactPhone,
+                    message: contactMessage,
+                }),
+            })
+
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data?.error || 'Falha ao enviar')
+            }
+
+            toast.success('Mensagem enviada com sucesso!')
+            setContactName('')
+            setContactEmail('')
+            setContactPhone('')
+            setContactMessage('')
+        } catch (error: any) {
+            toast.error('Erro ao enviar mensagem', { description: error.message })
+        } finally {
+            setIsSendingContact(false)
+        }
     }
 
     const companyInfo = settings.find(s => s.key === 'company_info')?.value || {}
@@ -458,27 +499,55 @@ export default function HomePage() {
                         </div>
 
                         <Card className="bg-white/5 border-white/10 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem]">
-                            <form className="space-y-5">
+                            <form className="space-y-5" onSubmit={handleContactSubmit}>
                                 <div className="space-y-2">
                                     <Label className="text-white/70 ml-1">Nome Completo</Label>
-                                    <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="Seu nome..." />
+                                    <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="Seu nome..."
+    value={contactName}
+    onChange={(e) => setContactName(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                     <div className="space-y-2">
                                         <Label className="text-white/70 ml-1">E-mail</Label>
-                                        <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="seu@email.com" />
+                                        <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="seu@email.com"
+    type="email"
+    value={contactEmail}
+    onChange={(e) => setContactEmail(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                     </div>
                                     <div className="space-y-2">
                                         <Label className="text-white/70 ml-1">WhatsApp</Label>
-                                        <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="(00) 00000-0000" />
+                                        <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="(00) 00000-0000"
+    value={contactPhone}
+    onChange={(e) => setContactPhone(e.target.value)}
+    disabled={isSendingContact}
+/>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label className="text-white/70 ml-1">Mensagem</Label>
-                                    <Textarea className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]" placeholder="Como podemos ajudar?" />
+                                    <Textarea
+    className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]"
+    placeholder="Como podemos ajudar?"
+    value={contactMessage}
+    onChange={(e) => setContactMessage(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                 </div>
-                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1">
-                                    Enviar Solicitação
+                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1" disabled={isSendingContact} type="submit">
+                                    {isSendingContact ? 'Enviando...' : 'Enviar Solicitação'}
                                 </Button>
                             </form>
                         </Card>
@@ -561,27 +630,55 @@ export default function HomePage() {
                         </div>
 
                         <Card className="bg-white/5 border-white/10 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem]">
-                            <form className="space-y-5">
+                            <form className="space-y-5" onSubmit={handleContactSubmit}>
                                 <div className="space-y-2">
                                     <Label className="text-white/70 ml-1">Nome Completo</Label>
-                                    <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="Seu nome..." />
+                                    <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="Seu nome..."
+    value={contactName}
+    onChange={(e) => setContactName(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                     <div className="space-y-2">
                                         <Label className="text-white/70 ml-1">E-mail</Label>
-                                        <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="seu@email.com" />
+                                        <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="seu@email.com"
+    type="email"
+    value={contactEmail}
+    onChange={(e) => setContactEmail(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                     </div>
                                     <div className="space-y-2">
                                         <Label className="text-white/70 ml-1">WhatsApp</Label>
-                                        <Input className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all" placeholder="(00) 00000-0000" />
+                                        <Input
+    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+    placeholder="(00) 00000-0000"
+    value={contactPhone}
+    onChange={(e) => setContactPhone(e.target.value)}
+    disabled={isSendingContact}
+/>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label className="text-white/70 ml-1">Mensagem</Label>
-                                    <Textarea className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]" placeholder="Como podemos ajudar?" />
+                                    <Textarea
+    className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]"
+    placeholder="Como podemos ajudar?"
+    value={contactMessage}
+    onChange={(e) => setContactMessage(e.target.value)}
+    disabled={isSendingContact}
+    required
+/>
                                 </div>
-                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1">
-                                    Enviar Solicitação
+                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1" disabled={isSendingContact} type="submit">
+                                    {isSendingContact ? 'Enviando...' : 'Enviar Solicitação'}
                                 </Button>
                             </form>
                         </Card>

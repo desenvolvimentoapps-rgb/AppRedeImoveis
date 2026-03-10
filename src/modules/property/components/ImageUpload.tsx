@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Plus, X, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { Plus, X, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ImageUploadProps {
@@ -15,7 +14,24 @@ interface ImageUploadProps {
 
 export function ImageUpload({ images, onChange, onMainImageChange, mainImageIndex }: ImageUploadProps) {
     const [isUploading, setIsUploading] = useState(false)
-    const supabase = createClient()
+
+    const uploadToCloudinary = async (file: File) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('folder', 'properties')
+
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+        })
+
+        const data = await response.json()
+        if (!response.ok) {
+            throw new Error(data?.error || 'Falha no upload')
+        }
+
+        return data?.url as string
+    }
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files
@@ -27,21 +43,8 @@ export function ImageUpload({ images, onChange, onMainImageChange, mainImageInde
         try {
             for (let i = 0; i < files.length; i++) {
                 const file = files[i]
-                const fileExt = file.name.split('.').pop()
-                const fileName = `${Math.random()}.${fileExt}`
-                const filePath = `properties/${fileName}`
-
-                const { error: uploadError, data } = await supabase.storage
-                    .from('property-images')
-                    .upload(filePath, file)
-
-                if (uploadError) throw uploadError
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('property-images')
-                    .getPublicUrl(filePath)
-
-                newImages.push(publicUrl)
+                const url = await uploadToCloudinary(file)
+                newImages.push(url)
             }
 
             onChange(newImages)

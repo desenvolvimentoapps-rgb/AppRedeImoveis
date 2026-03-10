@@ -1,14 +1,17 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useParams } from 'next/navigation'
 import { Property } from '@/types/database'
 import { PropertyForm } from '@/modules/property/components/PropertyForm'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 
-export default function EditPropertyPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = use(params)
+export default function EditPropertyPage() {
+    const params = useParams<{ id: string }>()
+    const rawId = params?.id
+    const id = Array.isArray(rawId) ? rawId[0] : rawId
     const [property, setProperty] = useState<Property | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const supabase = createClient()

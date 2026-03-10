@@ -9,42 +9,53 @@ export function useAuthProvider() {
     const supabase = createClient()
 
     useEffect(() => {
+        let isMounted = true;
         const fetchProfile = async () => {
-            const { data: { user } } = await supabase.auth.getUser()
+            try {
+                // Small delay to ensure browser auth client is fully ready
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (!isMounted) return;
 
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', user.id)
-                    .single()
+                const { data: { user } } = await supabase.auth.getUser()
 
-                setProfile(profile)
-            } else {
-                setProfile(null)
+                if (user && isMounted) {
+                    const { data: profile } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .eq('id', user.id)
+                        .single()
+
+                    if (isMounted) setProfile(profile)
+                } else if (isMounted) {
+                    setProfile(null)
+                }
+            } catch (err) {
+                console.error("Auth initialization error:", err);
+            } finally {
+                if (isMounted) setIsLoading(false)
             }
-            setIsLoading(false)
         }
 
         fetchProfile()
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
-                if (session?.user) {
+                if (session?.user && isMounted) {
                     const { data: profile } = await supabase
                         .from('profiles')
                         .select('*')
                         .eq('id', session.user.id)
                         .single()
-                    setProfile(profile)
-                } else {
+                    if (isMounted) setProfile(profile)
+                } else if (!session && isMounted) {
                     setProfile(null)
                 }
-                setIsLoading(false)
+                if (isMounted) setIsLoading(false)
             }
         )
 
         return () => {
+            isMounted = false;
             subscription.unsubscribe()
         }
     }, [supabase, setProfile, setIsLoading])

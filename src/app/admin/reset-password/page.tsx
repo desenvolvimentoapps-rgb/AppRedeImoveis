@@ -1,0 +1,131 @@
+'use client'
+
+import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { toast } from 'sonner'
+import { Loader2, KeyRound, ShieldAlert } from 'lucide-react'
+import { useAuthStore } from '@/hooks/useAuth'
+
+export default function ResetPasswordPage() {
+    const [password, setPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [isLoading, setIsLoading] = useState(false)
+    const { profile, refreshProfile } = useAuthStore()
+    const router = useRouter()
+    const supabase = createClient()
+
+    const handleReset = async (e: React.FormEvent) => {
+        e.preventDefault()
+
+        if (password.length < 6) {
+            toast.error('A senha deve ter pelo menos 6 caracteres')
+            return
+        }
+
+        if (password !== confirmPassword) {
+            toast.error('As senhas não coincidem')
+            return
+        }
+
+        setIsLoading(true)
+        try {
+            const { error: authError } = await supabase.auth.updateUser({
+                password: password
+            })
+
+            if (authError) throw authError
+
+            // Clear the flag in profiles
+            if (profile) {
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .update({ force_password_reset: false })
+                    .eq('id', profile.id)
+
+                if (profileError) throw profileError
+            }
+
+            toast.success('Senha atualizada com sucesso!')
+            await refreshProfile()
+            router.push('/admin')
+        } catch (error: any) {
+            toast.error('Erro ao atualizar senha', { description: error.message })
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    return (
+        <div className="flex items-center justify-center min-h-[80vh]">
+            <Card className="w-full max-w-md border-none shadow-2xl rounded-3xl overflow-hidden">
+                <div className="h-2 bg-primary"></div>
+                <CardHeader className="space-y-4 pt-8 pb-4 text-center">
+                    <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+                        <KeyRound className="w-8 h-8" />
+                    </div>
+                    <div className="space-y-2">
+                        <CardTitle className="text-2xl font-black">Alteração Obrigatória</CardTitle>
+                        <CardDescription className="text-slate-500 font-medium pb-2">
+                            Por motivos de segurança, você precisa definir uma nova senha para continuar acessando o sistema.
+                        </CardDescription>
+                    </div>
+                </CardHeader>
+                <form onSubmit={handleReset}>
+                    <CardContent className="space-y-6 px-8">
+                        <div className="bg-amber-50 border border-amber-100 p-3 rounded-2xl flex items-start gap-3">
+                            <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-amber-700 font-medium leading-relaxed">
+                                Sua senha atual expira agora. Escolha uma senha forte que você não tenha usado anteriormente neste sistema.
+                            </p>
+                        </div>
+
+                        <div className="space-y-4 pt-2">
+                            <div className="space-y-2">
+                                <Label htmlFor="password">Nova Senha</Label>
+                                <Input
+                                    id="password"
+                                    type="password"
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    required
+                                    className="h-12 rounded-xl"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="confirmPassword">Confirmar Nova Senha</Label>
+                                <Input
+                                    id="confirmPassword"
+                                    type="password"
+                                    placeholder="••••••••"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    required
+                                    className="h-12 rounded-xl"
+                                />
+                            </div>
+                        </div>
+                    </CardContent>
+                    <CardFooter className="px-8 pb-8 pt-4">
+                        <Button
+                            className="w-full h-12 rounded-xl font-bold text-lg shadow-lg shadow-primary/20"
+                            type="submit"
+                            disabled={isLoading}
+                        >
+                            {isLoading ? (
+                                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Atualizando...</>
+                            ) : (
+                                'Redefinir Senha'
+                            )}
+                        </Button>
+                    </CardFooter>
+                </form>
+            </Card>
+        </div>
+    )
+}

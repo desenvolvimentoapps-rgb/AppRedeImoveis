@@ -6,11 +6,25 @@ interface AuthState {
     setProfile: (profile: Profile | null) => void
     isLoading: boolean
     setIsLoading: (isLoading: boolean) => void
+    refreshProfile: () => Promise<void>
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
     profile: null,
     setProfile: (profile) => set({ profile }),
     isLoading: true,
     setIsLoading: (isLoading) => set({ isLoading }),
+    refreshProfile: async () => {
+        const { createClient } = await import('@/lib/supabase/client')
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single()
+            if (profile) set({ profile })
+        }
+    }
 }))

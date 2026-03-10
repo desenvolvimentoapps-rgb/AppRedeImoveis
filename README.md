@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Olivia Prado - Sistema Imobiliário Profissional
 
-## Getting Started
+Sistema completo de CRM e CMS para venda de imóveis na planta, focado em alta performance e escalabilidade usando recursos 100% gratuitos.
 
-First, run the development server:
+## 🚀 Tecnologias
+- **Frontend**: Next.js 14 (App Router), TypeScript, TailwindCSS, Shadcn UI
+- **Backend**: Supabase (Postgres, Auth, Storage)
+- **Estado**: Zustand + TanStack Query
+- **Integrações**: ViaCEP, Google Maps, WhatsApp
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🛠️ Instalação Local
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. Clone o repositório:
+   ```bash
+   git clone <url-do-seu-repo>
+   cd appimoveis
+   ```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+2. Instale as dependências:
+   ```bash
+   npm install
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Configure as variáveis de ambiente (`.env.local`):
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://ceevcdnttlbjpucrdqew.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=seu-anon-key-aqui
+   ```
 
-## Learn More
+4. Rode o projeto:
+   ```bash
+   npm run dev
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+## 🔐 Configuração do Administrador Mestre
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Para criar o primeiro acesso com poder total:
+1. Vá para `/register` e crie uma conta.
+2. No dashboard do Supabase, execute o seguinte comando SQL para tornar seu usuário um Administrador (`hakunaadm`):
+   ```sql
+   UPDATE public.profiles SET role = 'hakunaadm' WHERE id = 'SEU_USER_ID_AQUI';
+   ```
+   *Ou use o e-mail:*
+   ```sql
+   UPDATE public.profiles SET role = 'hakunaadm' WHERE id IN (SELECT id FROM auth.users WHERE email = 'seu@email.com');
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 📑 Funcionalidades Principais
 
-## Deploy on Vercel
+### CMS Dinâmico (Admin)
+- No menu **CMS/Campos**, você pode criar novos atributos (ex: `vista_mar`, `vagas_garagem`).
+- Os campos aparecem automaticamente no formulário de cadastro e na página pública do imóvel.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### CRM de Leads
+- Todos os contatos feitos via formulário no site são salvos na tabela `leads`.
+- Gestores e Administradores podem visualizar e gerenciar o status dos leads.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### SEO e Performance
+- Slugs amigáveis gerados automaticamente: `/imoveis/apartamento-curitiba-oli-0001`.
+- Meta tags dinâmicas para redes sociais e buscadores.
+
+## ☁️ Deploy na Vercel
+1. Conecte seu repositório Git à Vercel.
+2. Adicione as variáveis de ambiente do Supabase.
+3. O deploy será automático a cada `git push`.

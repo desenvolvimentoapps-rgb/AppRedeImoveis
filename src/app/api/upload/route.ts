@@ -17,7 +17,15 @@ export async function POST(request: Request) {
         const folder = normalizeFolder(formData.get('folder')?.toString() || null)
 
         if (!file || !(file instanceof File)) {
-            return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 400 })
+            return NextResponse.json({ error: 'Arquivo nao encontrado' }, { status: 400 })
+        }
+
+        const config = cloudinary.config()
+        if (!config.cloud_name || !config.api_key || !config.api_secret) {
+            return NextResponse.json(
+                { error: 'Cloudinary nao configurado. Verifique as variaveis de ambiente.' },
+                { status: 500 }
+            )
         }
 
         const arrayBuffer = await file.arrayBuffer()

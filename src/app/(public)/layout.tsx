@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { CMSSettings } from '@/types/database'
 import { Button } from '@/components/ui/button'
-import { Home, Phone, Mail, Instagram, Facebook, Loader2 } from 'lucide-react'
+import { Home, Phone, Mail } from 'lucide-react'
 
 export default function PublicLayout({
     children,
@@ -17,12 +17,27 @@ export default function PublicLayout({
     const supabase = createClient()
 
     useEffect(() => {
-        async function fetchSettings() {
+        let isActive = true
+
+        const fetchSettings = async () => {
             const { data } = await supabase.from('cms_settings').select('*')
+            if (!isActive) return
             if (data) setSettings(data)
             setIsLoading(false)
         }
+
         fetchSettings()
+
+        // Keep layout in sync with CMS updates without full reload
+        const channel = supabase
+            .channel('public-settings')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_settings' }, fetchSettings)
+            .subscribe()
+
+        return () => {
+            isActive = false
+            supabase.removeChannel(channel)
+        }
     }, [supabase])
 
     const companyInfo = settings.find(s => s.key === 'company_info')?.value || {}

@@ -6,6 +6,7 @@ export interface Profile {
     email: string | null
     role: UserRole
     phone: string | null
+    avatar_url?: string | null
     force_password_reset: boolean
     created_at: string
     updated_at: string

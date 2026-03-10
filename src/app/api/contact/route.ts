@@ -1,5 +1,3 @@
-// /app/api/contact/route.ts
-
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -7,7 +5,6 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Função para escapar caracteres HTML e prevenir XSS
 function escapeHtml(input: string) {
   return input
     .replace(/&/g, '&amp;')
@@ -17,52 +14,64 @@ function escapeHtml(input: string) {
     .replace(/'/g, '&#39;')
 }
 
-// Função para buscar o email do destinatário no Supabase
 async function getRecipientEmail() {
   const { data } = await supabaseAdmin
     .from('cms_settings')
     .select('key, value')
     .in('key', ['company_info', 'footer_info'])
 
-  const companyInfo = data?.find((item) => item.key === 'company_info')?.value
-  const footerInfo = data?.find((item) => item.key === 'footer_info')?.value
+  const companyInfo = data?.find((item) => item.key === 'company_info')?.value as any
+  const footerInfo = data?.find((item) => item.key === 'footer_info')?.value as any
 
   return footerInfo?.email || companyInfo?.email || null
 }
 
-// Função principal da API
 export async function POST(request: Request) {
   try {
     if (!process.env.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY não configurada')
+      throw new Error('RESEND_API_KEY not configured')
     }
 
     const resend = new Resend(process.env.RESEND_API_KEY)
-
     const body = await request.json()
+
     const name = (body?.name || '').toString().trim()
     const email = (body?.email || '').toString().trim()
     const phone = (body?.phone || '').toString().trim()
     const message = (body?.message || '').toString().trim()
 
-    // Validação básica
     if (!name || !email || !message) {
-      return NextResponse.json({ error: 'Dados inválidos' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
     const toEmail = await getRecipientEmail()
     if (!toEmail) {
-      return NextResponse.json({ error: 'Email de destino não configurado' }, { status: 500 })
+      return NextResponse.json({ error: 'Recipient email not configured' }, { status: 500 })
     }
 
-    // Escapa HTML
+    // Save lead before sending the email to avoid losing the contact
+    const { error: leadError } = await supabaseAdmin
+      .from('leads')
+      .insert([{
+        property_id: null,
+        name,
+        email,
+        phone,
+        message,
+        status: 'new',
+        created_at: new Date().toISOString(),
+      }])
+
+    if (leadError) {
+      return NextResponse.json({ error: leadError.message || 'Failed to save lead' }, { status: 500 })
+    }
+
     const safeName = escapeHtml(name)
     const safeEmail = escapeHtml(email)
     const safePhone = escapeHtml(phone)
     const safeMessage = escapeHtml(message)
 
-    // Envia email via Resend
-    await resend.emails.send({
+    const emailResult = await resend.emails.send({
       from: 'onboarding@resend.dev',
       to: toEmail,
       subject: `Novo contato do site - ${safeName}`,
@@ -77,10 +86,17 @@ export async function POST(request: Request) {
       `,
     })
 
+    if (emailResult?.error) {
+      return NextResponse.json(
+        { error: emailResult.error.message || 'Failed to send email' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json({ ok: true })
   } catch (error: any) {
     return NextResponse.json(
-      { error: error?.message || 'Falha ao enviar email' },
+      { error: error?.message || 'Failed to send email' },
       { status: 500 }
     )
   }

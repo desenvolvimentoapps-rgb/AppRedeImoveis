@@ -21,5 +21,16 @@ export function useCMSScanner() {
         }
 
         fetchConfig()
+
+        // Keep CMS fields/menus in sync without manual refresh
+        const channel = supabase
+            .channel('cms-config')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_fields' }, fetchConfig)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_menus' }, fetchConfig)
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
     }, [supabase, setFields, setMenus, setIsLoading])
 }

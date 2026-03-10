@@ -1,8 +1,8 @@
 'use client'
 
-import React from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useCMSStore } from '@/hooks/useCMS'
 import { useAuthStore } from '@/hooks/useAuth'
@@ -15,11 +15,26 @@ export function AdminSidebar() {
     const { menus } = useCMSStore()
     const { profile } = useAuthStore()
     const pathname = usePathname()
+    const router = useRouter()
     const supabase = createClient()
+    const [avatarCacheKey, setAvatarCacheKey] = useState(() => Date.now())
+
+    useEffect(() => {
+        // Refresh avatar every 15 minutes
+        const intervalId = setInterval(() => setAvatarCacheKey(Date.now()), 15 * 60 * 1000)
+        return () => clearInterval(intervalId)
+    }, [])
+
+    const avatarUrl = useMemo(() => {
+        if (!profile?.avatar_url) return null
+        const separator = profile.avatar_url.includes('?') ? '&' : '?'
+        return `${profile.avatar_url}${separator}t=${avatarCacheKey}`
+    }, [profile?.avatar_url, avatarCacheKey])
 
     const handleLogout = async () => {
         await supabase.auth.signOut()
-        window.location.href = '/login'
+        router.push('/login')
+        router.refresh()
     }
 
     const filteredMenus = menus.filter(menu =>
@@ -86,9 +101,18 @@ export function AdminSidebar() {
 
             <div className="p-4 border-t space-y-4">
                 {profile && (
-                    <div className="flex flex-col">
-                        <span className="text-sm font-semibold truncate">{profile.full_name}</span>
-                        <span className="text-xs text-muted-foreground capitalize">{profile.role}</span>
+                    <div className="flex items-center gap-3">
+                        {avatarUrl && (
+                            <img
+                                src={avatarUrl}
+                                alt="Perfil"
+                                className="w-9 h-9 rounded-full object-cover border"
+                            />
+                        )}
+                        <div className="flex flex-col">
+                            <span className="text-sm font-semibold truncate">{profile.full_name}</span>
+                            <span className="text-xs text-muted-foreground capitalize">{profile.role}</span>
+                        </div>
                     </div>
                 )}
                 <Button

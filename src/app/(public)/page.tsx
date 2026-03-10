@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Property, PropertyType, CMSField, CMSSettings } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Search, MapPin, Bed, Bath, Maximize, ArrowRight, Loader2, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
@@ -40,17 +40,13 @@ export default function HomePage() {
     const [contactMessage, setContactMessage] = useState('')
     const [isSendingContact, setIsSendingContact] = useState(false)
 
-    useEffect(() => {
-        const fetchSettings = async () => {
-            const { data } = await supabase.from('cms_settings').select('*')
-            if (data) setSettings(data)
-        }
-        fetchData()
-        fetchSettings()
-    }, [])
+    const fetchSettings = useCallback(async () => {
+        const { data } = await supabase.from('cms_settings').select('*')
+        if (data) setSettings(data)
+    }, [supabase])
 
-    const fetchData = async () => {
-        setIsLoading(true)
+    const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+        if (!options?.silent) setIsLoading(true)
         const [propRes, typeRes, fieldRes] = await Promise.all([
             supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
             supabase.from('property_types').select('*').eq('is_active', true).order('name'),
@@ -60,8 +56,23 @@ export default function HomePage() {
         if (propRes.data) setProperties(propRes.data)
         if (typeRes.data) setTypes(typeRes.data)
         if (fieldRes.data) setFilterableFields(fieldRes.data)
-        setIsLoading(false)
-    }
+        if (!options?.silent) setIsLoading(false)
+    }, [supabase])
+
+    useEffect(() => {
+        fetchData()
+        fetchSettings()
+
+        const channel = supabase
+            .channel('home-updates')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => fetchData({ silent: true }))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_settings' }, fetchSettings)
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [supabase, fetchData, fetchSettings])
 
     const filteredProperties = useMemo(() => {
         return properties.filter(p => {
@@ -144,6 +155,25 @@ export default function HomePage() {
 
     const companyInfo = settings.find(s => s.key === 'company_info')?.value || {}
     const appearance = settings.find(s => s.key === 'appearance')?.value || {}
+    const footerInfo = settings.find(s => s.key === 'footer_info')?.value || {}
+    const homeContent = settings.find(s => s.key === 'home_content')?.value || {}
+
+    const heroBadge = homeContent.hero_badge || 'Exclusividade e Sofisticacao'
+    const heroTitleLine1 = homeContent.hero_title_line1 || 'Encontre a sua Proxima'
+    const heroTitleLine2 = homeContent.hero_title_line2 || 'Conquista Imobiliaria.'
+    const heroSubtitle = homeContent.hero_subtitle || 'Curadoria exclusiva dos melhores lancamentos e imoveis de alto padrao com atendimento premium.'
+
+    const aboutTitle = homeContent.about_title || 'Excelencia em Atendimento Imobiliario'
+    const aboutText = homeContent.about_text || footerInfo.about_text || 'Especialistas em lancamentos e imoveis de alto padrao. Encontre o lar dos seus sonhos com quem entende do mercado.'
+    const aboutSecondaryText = homeContent.about_secondary_text || 'Nossa missao e proporcionar um atendimento personalizado e exclusivo, garantindo que cada cliente encontre nao apenas um imovel, mas o seu proximo refugio.'
+    const aboutImageUrl = homeContent.about_image_url || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80'
+
+    const contactTitleLine1 = homeContent.contact_title_line1 || 'Vamos Encontrar seu'
+    const contactTitleLine2 = homeContent.contact_title_line2 || 'Novo Lar?'
+    const contactSubtitle = homeContent.contact_subtitle || 'Deixe sua mensagem e um de nossos especialistas entrara em contato em breve.'
+    const contactAddress = homeContent.contact_address || 'Curitiba - PR | Ponta Grossa - PR'
+    const contactPhoneText = homeContent.contact_phone || footerInfo.phone || companyInfo.whatsapp || '(41) 99999-9999'
+
     const heroBg = appearance.hero_bg_url || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=80'
 
     return (
@@ -161,15 +191,19 @@ export default function HomePage() {
 
                 <div className="container relative z-10 text-center space-y-8 px-4">
                     <div className="space-y-4 max-w-3xl mx-auto">
-                        <Badge className="bg-primary/20 text-primary border-primary/30 py-1 px-4 text-xs font-bold uppercase tracking-widest mb-2">Exclusividade e Sofisticação</Badge>
-                        <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-[1.1]">
-                            Encontre a sua Próxima <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-primary/80 to-accent">Conquista Imobiliária.</span>
-                        </h1>
-                        <p className="text-lg md:text-xl text-slate-300 font-light max-w-2xl mx-auto leading-relaxed">
-                            Curadoria exclusiva dos melhores lançamentos e imóveis de alto padrão com atendimento premium.
-                        </p>
-                    </div>
+    <Badge className="bg-primary/20 text-primary border-primary/30 py-1 px-4 text-xs font-bold uppercase tracking-widest mb-2">
+        {heroBadge}
+    </Badge>
+    <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-[1.1]">
+        {heroTitleLine1} <br />
+        <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-primary/80 to-accent">
+            {heroTitleLine2}
+        </span>
+    </h1>
+    <p className="text-lg md:text-xl text-slate-300 font-light max-w-2xl mx-auto leading-relaxed">
+        {heroSubtitle}
+    </p>
+</div>
 
                     <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl p-3 md:p-4 flex flex-col md:flex-row items-stretch gap-3 border border-primary/10 group transition-all duration-500 hover:shadow-primary/10">
                         <div className="flex-1 relative flex items-center px-4 bg-slate-50 rounded-xl border border-transparent focus-within:border-primary/30 transition-all">
@@ -425,266 +459,140 @@ export default function HomePage() {
             </section>
 
             {/* About Us Section */}
-            <section id="sobre" className="container max-w-7xl mx-auto px-4 py-24 border-t">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-                    <div className="space-y-8">
-                        <div className="flex items-center gap-2 mb-2">
-                            <div className="h-1 w-12 bg-primary rounded-full" />
-                            <span className="text-primary font-black text-xs uppercase tracking-[0.3em]">Nossa História</span>
+<section id="sobre" className="container max-w-7xl mx-auto px-4 py-24 border-t">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <div className="space-y-8">
+            <div className="flex items-center gap-2 mb-2">
+                <div className="h-1 w-12 bg-primary rounded-full" />
+                <span className="text-primary font-black text-xs uppercase tracking-[0.3em]">Nossa Historia</span>
+            </div>
+            <h2 className="text-5xl font-black text-slate-900 leading-tight">{aboutTitle}</h2>
+            <div className="space-y-4 text-slate-600 text-lg leading-relaxed">
+                <p>{aboutText}</p>
+                <p className="text-sm">{aboutSecondaryText}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-8 pt-4">
+                <div>
+                    <h4 className="text-3xl font-black text-primary">10+</h4>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Anos de Mercado</p>
+                </div>
+                <div>
+                    <h4 className="text-3xl font-black text-primary">500+</h4>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Sonhos Realizados</p>
+                </div>
+            </div>
+        </div>
+        <div className="relative group">
+            <div className="absolute -inset-4 bg-primary/10 rounded-[3rem] blur-2xl group-hover:bg-primary/20 transition-all duration-700" />
+            <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden shadow-2xl">
+                <img
+                    src={aboutImageUrl}
+                    className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000"
+                    alt="Equipe"
+                />
+            </div>
+        </div>
+    </div>
+</section>
+
+            {/* Contact Section */}
+<section id="contato" className="bg-slate-900 py-24 relative overflow-hidden">
+    <div className="absolute top-0 right-0 w-1/3 h-full bg-primary/5 -skew-x-12 translate-x-1/2" />
+    <div className="container max-w-7xl mx-auto px-4 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+            <div className="space-y-8">
+                <div className="space-y-4">
+                    <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">
+                        {contactTitleLine1} <br />
+                        <span className="text-primary italic">{contactTitleLine2}</span>
+                    </h2>
+                    <p className="text-slate-400 text-lg">{contactSubtitle}</p>
+                </div>
+
+                <div className="space-y-6 pt-4">
+                    <div className="flex items-center gap-4 group">
+                        <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                            <MapPin className="w-6 h-6" />
                         </div>
-                        <h2 className="text-5xl font-black text-slate-900 leading-tight">Excelência em Atendimento Imobiliário</h2>
-                        <div className="space-y-4 text-slate-600 text-lg leading-relaxed">
-                            <p>
-                                {settings.find(s => s.key === 'footer_info')?.value?.about_text || 'Olivia Prado Especialistas em lançamentos e imóveis de alto padrão. Encontre o lar dos seus sonhos com quem entende do mercado.'}
-                            </p>
-                            <p className="text-sm">
-                                Nossa missão é proporcionar um atendimento personalizado e exclusivo, garantindo que cada cliente encontre não apenas um imóvel, mas o seu próximo refúgio de luxo e sofisticação.
-                            </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-8 pt-4">
-                            <div>
-                                <h4 className="text-3xl font-black text-primary">10+</h4>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Anos de Mercado</p>
-                            </div>
-                            <div>
-                                <h4 className="text-3xl font-black text-primary">500+</h4>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Sonhos Realizados</p>
-                            </div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Endereco Principal</p>
+                            <p className="text-white font-medium">{contactAddress}</p>
                         </div>
                     </div>
-                    <div className="relative group">
-                        <div className="absolute -inset-4 bg-primary/10 rounded-[3rem] blur-2xl group-hover:bg-primary/20 transition-all duration-700" />
-                        <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden shadow-2xl">
-                            <img
-                                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80"
-                                className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000"
-                                alt="Equipe Olivia Prado"
+                    <div className="flex items-center gap-4 group">
+                        <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                            <ArrowRight className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fale Conosco</p>
+                            <p className="text-white font-medium">{contactPhoneText}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <Card className="bg-white/5 border-white/10 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem]">
+                <form className="space-y-5" onSubmit={handleContactSubmit}>
+                    <div className="space-y-2">
+                        <Label className="text-white/70 ml-1">Nome Completo</Label>
+                        <Input
+                            className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+                            placeholder="Seu nome..."
+                            value={contactName}
+                            onChange={(e) => setContactName(e.target.value)}
+                            disabled={isSendingContact}
+                            required
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-2">
+                            <Label className="text-white/70 ml-1">E-mail</Label>
+                            <Input
+                                className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+                                placeholder="seu@email.com"
+                                type="email"
+                                value={contactEmail}
+                                onChange={(e) => setContactEmail(e.target.value)}
+                                disabled={isSendingContact}
+                                required
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-white/70 ml-1">WhatsApp</Label>
+                            <Input
+                                className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
+                                placeholder="(00) 00000-0000"
+                                value={contactPhone}
+                                onChange={(e) => setContactPhone(e.target.value)}
+                                disabled={isSendingContact}
                             />
                         </div>
                     </div>
-                </div>
-            </section>
-
-            {/* Contact Section */}
-            <section id="contato" className="bg-slate-900 py-24 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-1/3 h-full bg-primary/5 -skew-x-12 translate-x-1/2" />
-                <div className="container max-w-7xl mx-auto px-4 relative z-10">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
-                        <div className="space-y-8">
-                            <div className="space-y-4">
-                                <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">Vamos Encontrar seu <br /><span className="text-primary italic">Novo Lar?</span></h2>
-                                <p className="text-slate-400 text-lg">Deixe sua mensagem e um de nossos especialistas entrará em contato em breve.</p>
-                            </div>
-
-                            <div className="space-y-6 pt-4">
-                                <div className="flex items-center gap-4 group">
-                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                                        <MapPin className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Endereço Principal</p>
-                                        <p className="text-white font-medium">Curitiba - PR | Ponta Grossa - PR</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-4 group">
-                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                                        <ArrowRight className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fale Conosco</p>
-                                        <p className="text-white font-medium">{settings.find(s => s.key === 'footer_info')?.value?.phone || '(41) 99999-9999'}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <Card className="bg-white/5 border-white/10 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem]">
-                            <form className="space-y-5" onSubmit={handleContactSubmit}>
-                                <div className="space-y-2">
-                                    <Label className="text-white/70 ml-1">Nome Completo</Label>
-                                    <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="Seu nome..."
-    value={contactName}
-    onChange={(e) => setContactName(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                    <div className="space-y-2">
-                                        <Label className="text-white/70 ml-1">E-mail</Label>
-                                        <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="seu@email.com"
-    type="email"
-    value={contactEmail}
-    onChange={(e) => setContactEmail(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-white/70 ml-1">WhatsApp</Label>
-                                        <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="(00) 00000-0000"
-    value={contactPhone}
-    onChange={(e) => setContactPhone(e.target.value)}
-    disabled={isSendingContact}
-/>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-white/70 ml-1">Mensagem</Label>
-                                    <Textarea
-    className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]"
-    placeholder="Como podemos ajudar?"
-    value={contactMessage}
-    onChange={(e) => setContactMessage(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                </div>
-                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1" disabled={isSendingContact} type="submit">
-                                    {isSendingContact ? 'Enviando...' : 'Enviar Solicitação'}
-                                </Button>
-                            </form>
-                        </Card>
+                    <div className="space-y-2">
+                        <Label className="text-white/70 ml-1">Mensagem</Label>
+                        <Textarea
+                            className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]"
+                            placeholder="Como podemos ajudar?"
+                            value={contactMessage}
+                            onChange={(e) => setContactMessage(e.target.value)}
+                            disabled={isSendingContact}
+                            required
+                        />
                     </div>
-                </div>
-            </section>
+                    <Button
+                        className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1"
+                        disabled={isSendingContact}
+                        type="submit"
+                    >
+                        {isSendingContact ? 'Enviando...' : 'Enviar Solicitacao'}
+                    </Button>
+                </form>
+            </Card>
+        </div>
+    </div>
+</section>
 
-            {/* About Us Section */}
-            <section id="sobre" className="container max-w-7xl mx-auto px-4 py-24 border-t">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-                    <div className="space-y-8">
-                        <div className="flex items-center gap-2 mb-2">
-                            <div className="h-1 w-12 bg-primary rounded-full" />
-                            <span className="text-primary font-black text-xs uppercase tracking-[0.3em]">Nossa História</span>
-                        </div>
-                        <h2 className="text-5xl font-black text-slate-900 leading-tight">Excelência em Atendimento Imobiliário</h2>
-                        <div className="space-y-4 text-slate-600 text-lg leading-relaxed">
-                            <p>
-                                {settings.find(s => s.key === 'footer_info')?.value?.about_text || 'Olivia Prado Especialistas em lançamentos e imóveis de alto padrão. Encontre o lar dos seus sonhos com quem entende do mercado.'}
-                            </p>
-                            <p className="text-sm">
-                                Nossa missão é proporcionar um atendimento personalizado e exclusivo, garantindo que cada cliente encontre não apenas um imóvel, mas o seu próximo refúgio de luxo e sofisticação.
-                            </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-8 pt-4">
-                            <div>
-                                <h4 className="text-3xl font-black text-primary">10+</h4>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Anos de Mercado</p>
-                            </div>
-                            <div>
-                                <h4 className="text-3xl font-black text-primary">500+</h4>
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Sonhos Realizados</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="relative group">
-                        <div className="absolute -inset-4 bg-primary/10 rounded-[3rem] blur-2xl group-hover:bg-primary/20 transition-all duration-700" />
-                        <div className="relative aspect-[4/5] rounded-[2.5rem] overflow-hidden shadow-2xl">
-                            <img
-                                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80"
-                                className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-1000"
-                                alt="Equipe Olivia Prado"
-                            />
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* Contact Section */}
-            <section id="contato" className="bg-slate-900 py-24 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-1/3 h-full bg-primary/5 -skew-x-12 translate-x-1/2" />
-                <div className="container max-w-7xl mx-auto px-4 relative z-10">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
-                        <div className="space-y-8">
-                            <div className="space-y-4">
-                                <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">Vamos Encontrar seu <br /><span className="text-primary italic">Novo Lar?</span></h2>
-                                <p className="text-slate-400 text-lg">Deixe sua mensagem e um de nossos especialistas entrará em contato em breve.</p>
-                            </div>
-
-                            <div className="space-y-6 pt-4">
-                                <div className="flex items-center gap-4 group">
-                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                                        <MapPin className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Endereço Principal</p>
-                                        <p className="text-white font-medium">Curitiba - PR | Ponta Grossa - PR</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-4 group">
-                                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                                        <ArrowRight className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fale Conosco</p>
-                                        <p className="text-white font-medium">{settings.find(s => s.key === 'footer_info')?.value?.phone || '(41) 99999-9999'}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <Card className="bg-white/5 border-white/10 backdrop-blur-sm p-4 md:p-8 rounded-[2.5rem]">
-                            <form className="space-y-5" onSubmit={handleContactSubmit}>
-                                <div className="space-y-2">
-                                    <Label className="text-white/70 ml-1">Nome Completo</Label>
-                                    <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="Seu nome..."
-    value={contactName}
-    onChange={(e) => setContactName(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                    <div className="space-y-2">
-                                        <Label className="text-white/70 ml-1">E-mail</Label>
-                                        <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="seu@email.com"
-    type="email"
-    value={contactEmail}
-    onChange={(e) => setContactEmail(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-white/70 ml-1">WhatsApp</Label>
-                                        <Input
-    className="h-14 bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all"
-    placeholder="(00) 00000-0000"
-    value={contactPhone}
-    onChange={(e) => setContactPhone(e.target.value)}
-    disabled={isSendingContact}
-/>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-white/70 ml-1">Mensagem</Label>
-                                    <Textarea
-    className="bg-white/5 border-white/10 text-white rounded-2xl focus:bg-white focus:text-slate-900 transition-all min-h-[120px]"
-    placeholder="Como podemos ajudar?"
-    value={contactMessage}
-    onChange={(e) => setContactMessage(e.target.value)}
-    disabled={isSendingContact}
-    required
-/>
-                                </div>
-                                <Button className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black rounded-2xl shadow-2xl shadow-primary/20 transition-all active:scale-[0.98] pt-1" disabled={isSendingContact} type="submit">
-                                    {isSendingContact ? 'Enviando...' : 'Enviar Solicitação'}
-                                </Button>
-                            </form>
-                        </Card>
-                    </div>
-                </div>
-            </section>
+            
         </div>
     )
 }

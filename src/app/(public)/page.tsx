@@ -374,7 +374,7 @@ export default function HomePage() {
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-32 gap-6 bg-white border rounded-3xl animate-pulse">
                         <Loader2 className="w-12 h-12 animate-spin text-primary" />
-                        <p className="text-slate-400 font-medium tracking-wide">Buscando disponibilidades...</p>
+                        <p className="text-slate-400 font-medium tracking-wide">Buscando melhores disponibilidades...</p>
                     </div>
                 ) : filteredProperties.length === 0 ? (
                     <div className="text-center py-32 bg-white border rounded-3xl shadow-sm space-y-6">

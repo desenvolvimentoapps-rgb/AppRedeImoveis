@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCMSStore } from '@/hooks/useCMS'
 import { useAuthStore } from '@/hooks/useAuth'
@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { Plus, Settings2, Trash2, Info, HelpCircle, X } from 'lucide-react'
+import { Plus, Settings2, Trash2, Info, HelpCircle, X, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 
 export default function CMSFieldsPage() {
     const { fields, setFields } = useCMSStore()
@@ -32,6 +32,7 @@ export default function CMSFieldsPage() {
     // Form states
     const [name, setName] = useState('')
     const [label, setLabel] = useState('')
+    const [labelEng, setLabelEng] = useState('')
     const [type, setType] = useState('text')
     const [section, setSection] = useState('ficha_tecnica')
     const [icon, setIcon] = useState('info')
@@ -43,6 +44,11 @@ export default function CMSFieldsPage() {
     const [newOption, setNewOption] = useState('')
     const [showInSummary, setShowInSummary] = useState(false)
     const [summaryOrder, setSummaryOrder] = useState(0)
+    const [searchTerm, setSearchTerm] = useState('')
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(10)
+    const [sortKey, setSortKey] = useState<'label' | 'fields_label_eng' | 'type_link' | 'type_section'>('label')
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
     const fetchFields = async () => {
         const { data } = await supabase.from('cms_fields').select('*').order('section', { ascending: true })
@@ -59,6 +65,64 @@ export default function CMSFieldsPage() {
         fetchTypes()
     }, [supabase])
 
+    useEffect(() => {
+        setPage(1)
+    }, [searchTerm, pageSize])
+
+    const handleSort = (key: typeof sortKey) => {
+        if (sortKey === key) {
+            setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'))
+            return
+        }
+        setSortKey(key)
+        setSortDir('asc')
+    }
+
+    const getSortIndicator = (key: typeof sortKey) => {
+        if (sortKey !== key) return ''
+        return sortDir === 'asc' ? '?' : '?'
+    }
+
+    const resolveTypeLabel = (field: CMSField) => {
+        if (!field.property_type_id) return 'Todos'
+        return types.find(t => t.id === field.property_type_id)?.name || 'Carregando...'
+    }
+
+    const filteredFields = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase()
+        if (!term) return fields
+        return fields.filter((field) => {
+            const haystack = [
+                field.label,
+                field.fields_label_eng || '',
+                field.name,
+                field.type,
+                field.section,
+                resolveTypeLabel(field),
+            ].join(' ').toLowerCase()
+            return haystack.includes(term)
+        })
+    }, [fields, searchTerm, types])
+
+    const sortedFields = useMemo(() => {
+        const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true })
+        const direction = sortDir === 'asc' ? 1 : -1
+        const getValue = (item: CMSField) => {
+            if (sortKey === 'fields_label_eng') return item.fields_label_eng || ''
+            if (sortKey === 'type_link') return resolveTypeLabel(item) || ''
+            if (sortKey === 'type_section') return `${item.type || ''} ${item.section || ''}`.trim()
+            return item.label || ''
+        }
+        return [...filteredFields].sort((a, b) => collator.compare(getValue(a), getValue(b)) * direction)
+    }, [filteredFields, sortKey, sortDir, types])
+
+    const totalPages = Math.max(1, Math.ceil(sortedFields.length / pageSize))
+    const currentFields = sortedFields.slice((page - 1) * pageSize, page * pageSize)
+
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages)
+    }, [page, totalPages])
+
     const handleOpenDialog = (field?: CMSField) => {
         if (field && !canEdit) {
             toast.error('Sem permissão para editar campos')
@@ -73,6 +137,7 @@ export default function CMSFieldsPage() {
             setEditingField(field)
             setName(field.name)
             setLabel(field.label)
+            setLabelEng(field.fields_label_eng || '')
             setType(field.type)
             setSection(field.section)
             setIcon(field.icon || 'info')
@@ -87,6 +152,7 @@ export default function CMSFieldsPage() {
             setEditingField(null)
             setName('')
             setLabel('')
+            setLabelEng('')
             setType('text')
             setSection('ficha_tecnica')
             setIcon('info')
@@ -128,6 +194,7 @@ export default function CMSFieldsPage() {
             const payload = {
                 name,
                 label,
+                fields_label_eng: labelEng || null,
                 type,
                 section,
                 icon,
@@ -213,6 +280,11 @@ export default function CMSFieldsPage() {
                                 </div>
 
                                 <div className="space-y-2">
+                                    <Label htmlFor="label_eng">Tradução (Inglês)</Label>
+                                    <Input id="label_eng" placeholder="ex: Sea View" value={labelEng} onChange={e => setLabelEng(e.target.value)} />
+                                </div>
+
+                                <div className="space-y-2">
                                     <Label htmlFor="property_type">Vínculo de Tipo</Label>
                                     <Select value={propertyTypeId} onValueChange={v => setPropertyTypeId(v ?? 'all')}>
                                         <SelectTrigger>
@@ -251,6 +323,7 @@ export default function CMSFieldsPage() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
+                                                <SelectItem value="ficha_nenhum">Nenhum</SelectItem>
                                                 <SelectItem value="ficha_tecnica">Ficha Técnica</SelectItem>
                                                 <SelectItem value="comodidades">Comodidades</SelectItem>
                                                 <SelectItem value="caracteristicas">Características</SelectItem>
@@ -330,19 +403,56 @@ export default function CMSFieldsPage() {
                 </DialogContent>
             </Dialog>
 
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="relative w-full md:w-80">
+                    <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Input
+                        placeholder="Pesquisar por campo, tradução ou seção..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="pl-9"
+                    />
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Mostrar</span>
+                    <select
+                        className="border rounded-md px-2 py-1 bg-background text-foreground"
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                    >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                    </select>
+                    <span>por p?gina</span>
+                </div>
+            </div>
+
             <div className="border rounded-xl bg-card overflow-hidden shadow-sm">
                 <Table>
                     <TableHeader>
                         <TableRow className="bg-muted/50">
                             <TableHead className="w-12"></TableHead>
-                            <TableHead>Campo / Label</TableHead>
-                            <TableHead>Vínculo</TableHead>
-                            <TableHead>Tipo / Seção</TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('label')}>
+                                Campo / Label {getSortIndicator('label')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('fields_label_eng')}>
+                                Tradução (EN) {getSortIndicator('fields_label_eng')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('type_link')}>
+                                V?nculo {getSortIndicator('type_link')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('type_section')}>
+                                Tipo / Seção {getSortIndicator('type_section')}
+                            </TableHead>
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {fields.map((field) => (
+                        {currentFields.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Nenhum campo encontrado.</TableCell>
+                            </TableRow>
+                        ) : currentFields.map((field) => (
                             <TableRow key={field.id} className="group">
                                 <TableCell>
                                     <HelpCircle className="w-4 h-4 text-muted-foreground opacity-50" />
@@ -353,6 +463,7 @@ export default function CMSFieldsPage() {
                                         <span className="text-[10px] font-mono text-muted-foreground uppercase">{field.name}</span>
                                     </div>
                                 </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{field.fields_label_eng || '-'}</TableCell>
                                 <TableCell>
                                     {field.property_type_id ? (
                                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700">
@@ -372,10 +483,10 @@ export default function CMSFieldsPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(field)} disabled={!canEdit} title={!canEdit ? 'Sem permissão' : 'Editar'}>
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(field)} disabled={!canEdit} title={!canEdit ? 'Sem permiss?o' : 'Editar'}>
                                             <Settings2 className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteField(field.id)} disabled={!canDelete} title={!canDelete ? 'Sem permissão' : 'Excluir'}>
+                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteField(field.id)} disabled={!canDelete} title={!canDelete ? 'Sem permiss?o' : 'Excluir'}>
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
@@ -384,6 +495,30 @@ export default function CMSFieldsPage() {
                         ))}
                     </TableBody>
                 </Table>
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30 text-xs text-muted-foreground">
+                    <span>Mostrando {currentFields.length} de {filteredFields.length} resultados</span>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                        >
+                            <ChevronLeft className="w-4 h-4 mr-1" />
+                            Anterior
+                        </Button>
+                        <span>{page} / {totalPages}</span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                        >
+                            Pr?xima
+                            <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    </div>
+                </div>
             </div>
         </div>
     )

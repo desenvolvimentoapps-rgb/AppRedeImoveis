@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/hooks/useAuth'
 import { hasPermission } from '@/lib/permissions'
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { Plus, Settings2, Trash2, Home } from 'lucide-react'
+import { Plus, Settings2, Trash2, Home, ChevronLeft, ChevronRight, Search } from 'lucide-react'
 
 export default function PropertyTypesPage() {
     const [types, setTypes] = useState<PropertyType[]>([])
@@ -28,8 +28,14 @@ export default function PropertyTypesPage() {
 
     // Form states
     const [name, setName] = useState('')
+    const [nameEng, setNameEng] = useState('')
     const [description, setDescription] = useState('')
     const [isActive, setIsActive] = useState(true)
+    const [searchTerm, setSearchTerm] = useState('')
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(10)
+    const [sortKey, setSortKey] = useState<'name' | 'types_label_eng' | 'slug' | 'is_active'>('name')
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
     const fetchTypes = async () => {
         const { data } = await supabase.from('property_types').select('*').order('name')
@@ -39,6 +45,56 @@ export default function PropertyTypesPage() {
     useEffect(() => {
         fetchTypes()
     }, [supabase])
+
+    useEffect(() => {
+        setPage(1)
+    }, [searchTerm, pageSize])
+
+    const handleSort = (key: typeof sortKey) => {
+        if (sortKey === key) {
+            setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'))
+            return
+        }
+        setSortKey(key)
+        setSortDir('asc')
+    }
+
+    const getSortIndicator = (key: typeof sortKey) => {
+        if (sortKey != key) return ''
+        return sortDir === 'asc' ? '?' : '?'
+    }
+
+    const filteredTypes = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase()
+        if (!term) return types
+        return types.filter((type) => {
+            const haystack = [
+                type.name,
+                type.slug,
+                type.types_label_eng || '',
+            ].join(' ').toLowerCase()
+            return haystack.includes(term)
+        })
+    }, [types, searchTerm])
+
+    const sortedTypes = useMemo(() => {
+        const collator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true })
+        const direction = sortDir === 'asc' ? 1 : -1
+        const getValue = (item: PropertyType) => {
+            if (sortKey === 'types_label_eng') return item.types_label_eng || ''
+            if (sortKey === 'slug') return item.slug || ''
+            if (sortKey === 'is_active') return item.is_active ? 'Ativo' : 'Inativo'
+            return item.name || ''
+        }
+        return [...filteredTypes].sort((a, b) => collator.compare(getValue(a), getValue(b)) * direction)
+    }, [filteredTypes, sortKey, sortDir])
+
+    const totalPages = Math.max(1, Math.ceil(sortedTypes.length / pageSize))
+    const currentTypes = sortedTypes.slice((page - 1) * pageSize, page * pageSize)
+
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages)
+    }, [page, totalPages])
 
     const handleOpenDialog = (type?: PropertyType) => {
         if (type && !canEdit) {
@@ -53,11 +109,13 @@ export default function PropertyTypesPage() {
         if (type) {
             setEditingType(type)
             setName(type.name)
+            setNameEng(type.types_label_eng || '')
             setDescription(type.description || '')
             setIsActive(type.is_active)
         } else {
             setEditingType(null)
             setName('')
+            setNameEng('')
             setDescription('')
             setIsActive(true)
         }
@@ -78,7 +136,7 @@ export default function PropertyTypesPage() {
 
         try {
             const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]/g, '').replace(/\s+/g, '-')
-            const payload = { name, slug, description, is_active: isActive }
+            const payload = { name, slug, description, is_active: isActive, types_label_eng: nameEng || null }
 
             if (editingType) {
                 const { error } = await supabase.from('property_types').update(payload).eq('id', editingType.id)
@@ -144,6 +202,10 @@ export default function PropertyTypesPage() {
                                 <Input id="name" placeholder="ex: Apartamento, Casa, Terreno" value={name} onChange={e => setName(e.target.value)} required />
                             </div>
                             <div className="space-y-2">
+                                <Label htmlFor="name_eng">Tradução (Inglês)</Label>
+                                <Input id="name_eng" placeholder="ex: Apartment, House, Land" value={nameEng} onChange={e => setNameEng(e.target.value)} />
+                            </div>
+                            <div className="space-y-2">
                                 <Label htmlFor="description">Descrição (Opcional)</Label>
                                 <Textarea id="description" placeholder="Breve descrição sobre este tipo..." value={description} onChange={e => setDescription(e.target.value)} />
                             </div>
@@ -165,26 +227,60 @@ export default function PropertyTypesPage() {
                 </DialogContent>
             </Dialog>
 
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="relative w-full md:w-80">
+                    <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Input
+                        placeholder="Pesquisar por nome, tradução ou slug..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="pl-9"
+                    />
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Mostrar</span>
+                    <select
+                        className="border rounded-md px-2 py-1 bg-background text-foreground"
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                    >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                    </select>
+                    <span>por p?gina</span>
+                </div>
+            </div>
+
             <div className="border rounded-xl bg-card overflow-hidden shadow-sm">
                 <Table>
                     <TableHeader>
                         <TableRow className="bg-muted/50">
                             <TableHead className="w-12"></TableHead>
-                            <TableHead>Nome</TableHead>
-                            <TableHead>Slug</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('name')}>
+                                Nome {getSortIndicator('name')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('types_label_eng')}>
+                                Tradução (EN) {getSortIndicator('types_label_eng')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('slug')}>
+                                Slug {getSortIndicator('slug')}
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none" onClick={() => handleSort('is_active')}>
+                                Status {getSortIndicator('is_active')}
+                            </TableHead>
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {types.length === 0 ? (
+                        {currentTypes.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">Nenhum tipo cadastrado.</TableCell>
+                                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Nenhum tipo encontrado.</TableCell>
                             </TableRow>
-                        ) : types.map((type) => (
+                        ) : currentTypes.map((type) => (
                             <TableRow key={type.id}>
                                 <TableCell><Home className="w-4 h-4 text-primary/60" /></TableCell>
                                 <TableCell className="font-bold">{type.name}</TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{type.types_label_eng || '-'}</TableCell>
                                 <TableCell className="font-mono text-xs">{type.slug}</TableCell>
                                 <TableCell>
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${type.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -193,10 +289,10 @@ export default function PropertyTypesPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(type)} disabled={!canEdit} title={!canEdit ? 'Sem permissão' : 'Editar'}>
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(type)} disabled={!canEdit} title={!canEdit ? 'Sem permiss?o' : 'Editar'}>
                                             <Settings2 className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(type.id)} disabled={!canDelete} title={!canDelete ? 'Sem permissão' : 'Excluir'}>
+                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(type.id)} disabled={!canDelete} title={!canDelete ? 'Sem permiss?o' : 'Excluir'}>
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
@@ -205,6 +301,30 @@ export default function PropertyTypesPage() {
                         ))}
                     </TableBody>
                 </Table>
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/30 text-xs text-muted-foreground">
+                    <span>Mostrando {currentTypes.length} de {filteredTypes.length} resultados</span>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                        >
+                            <ChevronLeft className="w-4 h-4 mr-1" />
+                            Anterior
+                        </Button>
+                        <span>{page} / {totalPages}</span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                        >
+                            Pr?xima
+                            <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                    </div>
+                </div>
             </div>
         </div>
     )

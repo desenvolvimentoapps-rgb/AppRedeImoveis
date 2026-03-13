@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useParams } from 'next/navigation'
+import { useParams, usePathname } from 'next/navigation'
 import { Property, CMSField, CMSSettings } from '@/types/database'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -38,7 +38,11 @@ export default function PropertyDetailsPage() {
     const params = useParams<{ slug: string }>()
     const rawSlug = params?.slug
     const slug = Array.isArray(rawSlug) ? rawSlug[0] : rawSlug
+    const pathname = usePathname()
+    const locale = pathname?.includes('/imoveis/en/') ? 'en' : 'pt-BR'
     const [property, setProperty] = useState<Property | null>(null)
+    const [groupProperties, setGroupProperties] = useState<Property[]>([])
+    const [activePlantId, setActivePlantId] = useState<string | null>(null)
     const [cmsFields, setCmsFields] = useState<CMSField[]>([])
     const [settings, setSettings] = useState<CMSSettings[]>([])
     const [isLoading, setIsLoading] = useState(true)
@@ -84,22 +88,6 @@ export default function PropertyDetailsPage() {
     const [similarProperties, setSimilarProperties] = useState<Property[]>([])
     const [isTourOpen, setIsTourOpen] = useState(false)
 
-    // Template da mensagem
-    const messageTemplate = 'Ol?, gostaria de mais informa??es sobre este im?vel'
-
-    // Atualiza mensagem automaticamente quando o im?vel carregar
-    useEffect(() => {
-        if (!property) return
-
-        const parsedMessage = messageTemplate
-            .replace(/{property_url}/g, typeof window !== 'undefined' ? window.location.href : '')
-            .replace(/{property_code}/g, property.code || '')
-            .replace(/{internal_code}/g, property.internal_code || '')
-
-        setLeadMsg(parsedMessage)
-    }, [property, messageTemplate])
-
-
     useEffect(() => {
         let isActive = true
         const fetchData = async () => {
@@ -111,7 +99,7 @@ export default function PropertyDetailsPage() {
             try {
                 // Fetch property, fields, and settings
                 const [propRes, fieldRes, settRes] = await Promise.all([
-                    supabase.from('properties').select('*, type:property_types(name)').eq('slug', slug).single(),
+                    supabase.from('properties').select('*, type:property_types(name, types_label_eng)').eq('slug', slug).eq('locale', locale).single(),
                     supabase.from('cms_fields').select('*'),
                     supabase.from('cms_settings').select('*')
                 ])
@@ -123,6 +111,7 @@ export default function PropertyDetailsPage() {
                 if (propRes.data && isActive) {
                     const propertyData = propRes.data
                     setProperty(propertyData)
+                    setActivePlantId(propertyData.id)
 
                     // Track View (Increment view_count)
                     const viewField = resolveCounterField(propertyData as any, ['view_count'])
@@ -133,20 +122,41 @@ export default function PropertyDetailsPage() {
                     // Fetch Similar Properties (Same type, excluding current)
                     const { data: similar } = await supabase
                         .from('properties')
-                        .select('*, type:property_types(name)')
+                        .select('*, type:property_types(name, types_label_eng)')
                         .eq('type_id', propertyData.type_id)
                         .neq('id', propertyData.id)
                         .eq('is_active', true)
+                        .eq('locale', locale)
+                        .eq('plan_index', 1)
                         .limit(4)
 
                     if (isActive) setSimilarProperties(similar || [])
+
+                    if (propertyData.property_group_id) {
+                        const { data: groupData } = await supabase
+                            .from('properties')
+                            .select('*, type:property_types(name, types_label_eng)')
+                            .eq('property_group_id', propertyData.property_group_id)
+                            .eq('locale', locale)
+                            .order('plan_index', { ascending: true })
+
+                        if (isActive) {
+                            const groupList = (groupData || []) as Property[]
+                            setGroupProperties(groupList)
+                            const current = groupList.find((item) => item.id === propertyData.id) || propertyData
+                            setProperty(current)
+                            setActivePlantId(current.id)
+                        }
+                    } else {
+                        if (isActive) setGroupProperties([])
+                    }
                 }
 
                 if (fieldRes.data && isActive) setCmsFields(fieldRes.data)
                 if (settRes.data && isActive) setSettings(settRes.data)
             } catch (error: any) {
                 if (isActive) {
-                    toast.error('Erro ao carregar imóvel', { description: error?.message })
+                    toast.error(copy.loadError, { description: error?.message })
                 }
             } finally {
                 if (isActive) setIsLoading(false)
@@ -157,7 +167,7 @@ export default function PropertyDetailsPage() {
         return () => {
             isActive = false
         }
-    }, [slug, supabase])
+    }, [slug, supabase, locale])
 
     const companyInfo = useMemo(() => {
         const info = settings.find(s => s.key === 'company_info')?.value
@@ -167,6 +177,71 @@ export default function PropertyDetailsPage() {
     const propertyDetails = useMemo(() => {
         return settings.find(s => s.key === 'property_details')?.value || {}
     }, [settings])
+
+    const isExterior = !!property?.is_exterior
+    const useEnglish = locale === 'en' || isExterior
+    const propertyBasePath = locale === 'en' ? '/imoveis/en' : '/imoveis'
+
+    const copy = useMemo(() => ({
+        otherPlantsTitle: useEnglish ? 'Other floor plans available' : 'Outras plantas disponíveis',
+        otherPlantsSubtitle: useEnglish ? 'Select to see specific prices and details.' : 'Selecione para ver valores e detalhes específicos.',
+        photosLabel: useEnglish ? 'Photos' : 'Fotos',
+        salePrice: useEnglish ? 'Sale price' : 'Valor de venda',
+        startingAt: useEnglish ? 'Starting at' : 'Preços a partir de',
+        specialInvestment: useEnglish ? 'Special investment' : 'Investimento Especial',
+        consult: useEnglish ? 'Inquire' : 'Consulte',
+        leadTitle: useEnglish ? 'Schedule a Visit' : 'Agende uma Visita',
+        leadSubtitle: useEnglish ? 'Leave your details and our specialist will contact you within 15 minutes.' : 'Deixe seus dados e nosso especialista entrará em contato em menos de 15 minutos.',
+        leadSuccess: useEnglish ? 'Contact sent successfully! We will be in touch shortly.' : 'Contato enviado com sucesso! Retornaremos em breve.',
+        leadError: useEnglish ? 'Error sending contact' : 'Erro ao enviar contato',
+        loadError: useEnglish ? 'Error loading property' : 'Erro ao carregar imóvel',
+        sendErrorFallback: useEnglish ? 'Failed to send' : 'Falha ao enviar',
+        linkCopied: useEnglish ? 'Link copied!' : 'Link copiado!',
+        descriptionTitle: useEnglish ? 'Property Description' : 'Descrição do Imóvel',
+        primeLocation: useEnglish ? 'Prime Location' : 'Localização Privilegiada',
+        similarTitle: useEnglish ? 'Similar Properties' : 'Imóveis Similares',
+        similarSubtitle: useEnglish ? 'Other options that may interest you in this profile' : 'Outras opções que podem lhe interessar neste perfil',
+        service: useEnglish ? 'Support' : 'Atendimento',
+        callNow: useEnglish ? 'Call now' : 'Ligar agora',
+        sendEmail: useEnglish ? 'Send email' : 'Enviar e-mail',
+        backToSearch: useEnglish ? 'Back to search' : 'Voltar para busca',
+        notFound: useEnglish ? 'Property not found' : 'Imóvel não encontrado',
+        backToHome: useEnglish ? 'Back to home' : 'Voltar para o início',
+        sectionLabels: {
+            ficha_tecnica: useEnglish ? 'Specifications' : 'Ficha técnica',
+            comodidades: useEnglish ? 'Amenities' : 'Comodidades',
+            caracteristicas: useEnglish ? 'Features' : 'Características',
+        },
+    }), [useEnglish])
+
+    const messageTemplate = useMemo(() => {
+        return useEnglish
+            ? 'Hello, I would like more information about this property {property_url} | Code: {property_code}.'
+            : 'Olá, gostaria de mais informações sobre este imóvel {property_url} | Código: {property_code}.'
+    }, [useEnglish])
+
+    // Atualiza mensagem automaticamente quando o imóvel carregar
+    useEffect(() => {
+        if (!property) return
+
+        const parsedMessage = messageTemplate
+            .replace(/{property_url}/g, typeof window !== 'undefined' ? window.location.href : '')
+            .replace(/{property_code}/g, property.code || '')
+            .replace(/{internal_code}/g, property.internal_code || '')
+
+        setLeadMsg(parsedMessage)
+    }, [property, messageTemplate])
+
+    const resolveTypeLabel = (item: Property | null) => {
+        if (!item?.type) return ''
+        if (useEnglish) return (item.type as any).types_label_eng || item.type.name || ''
+        return item.type.name || ''
+    }
+
+    const resolveFieldLabel = (field: CMSField) => {
+        if (useEnglish) return field.fields_label_eng || field.label
+        return field.label
+    }
 
     const handleSendLead = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -192,16 +267,16 @@ export default function PropertyDetailsPage() {
 
             const data = await response.json()
             if (!response.ok) {
-                throw new Error(data?.error || 'Falha ao enviar')
+                throw new Error(data?.error || copy.sendErrorFallback)
             }
 
             await trackPropertyClick('email')
-            toast.success('Contato enviado com sucesso! Retornaremos em breve.')
+            toast.success(copy.leadSuccess)
             setLeadName('')
             setLeadEmail('')
             setLeadPhone('')
         } catch (error: any) {
-            toast.error('Erro ao enviar contato', { description: error.message })
+            toast.error(copy.leadError, { description: error.message })
         } finally {
             setIsSendingLead(false)
         }
@@ -258,6 +333,15 @@ export default function PropertyDetailsPage() {
             .sort((a, b) => (a.summary_order || 0) - (b.summary_order || 0))
     }, [cmsFields])
 
+    const availablePlants = groupProperties.length ? groupProperties : (property ? [property] : [])
+    const hasMultiplePlants = availablePlants.length > 1
+
+    const handleSelectPlant = (plant: Property) => {
+        setProperty(plant)
+        setActivePlantId(plant.id)
+        setActiveImage(0)
+    }
+
     const nextImage = () => {
         if (!property?.images?.length) return
         setActiveImage((prev) => (prev + 1) % property.images.length)
@@ -295,26 +379,26 @@ export default function PropertyDetailsPage() {
 
     if (!property) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-            <h1 className="text-2xl font-bold">Imóvel não encontrado</h1>
-            <Link href="/"><Button>Voltar para o início</Button></Link>
+            <h1 className="text-2xl font-bold">{copy.notFound}</h1>
+            <Link href="/"><Button>{copy.backToHome}</Button></Link>
         </div>
     )
     const getPriceInfo = (item: Property) => {
         const pricing = (item.features as any)?.pricing
         const isExact = !pricing || pricing.mode === 'exact'
         const label = isExact
-            ? 'Valor de venda'
-            : (pricing.label || (pricing.mode === 'special' ? 'Investimento Especial' : 'Preços a partir de'))
+            ? copy.salePrice
+            : (pricing.label || (pricing.mode === 'special' ? copy.specialInvestment : copy.startingAt))
         const valueText = item.value
             ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.value)
-            : 'Consulte'
+            : copy.consult
         return { label, valueText, isExact }
     }
 
     const priceInfo = getPriceInfo(property)
 
-    const leadTitle = propertyDetails.lead_title || 'Agende uma Visita'
-    const leadSubtitle = propertyDetails.lead_subtitle || 'Deixe seus dados e nosso especialista entrará em contato em menos de 15 minutos.'
+    const leadTitle = propertyDetails.lead_title || copy.leadTitle
+    const leadSubtitle = propertyDetails.lead_subtitle || copy.leadSubtitle
     const leadNoteTemplate = propertyDetails.lead_note || 'Link: {property_url} | Código: {property_code} | Interno: {internal_code}'
     const leadNote = leadNoteTemplate
         .replace(/{property_url}/g, typeof window !== 'undefined' ? window.location.href : '')
@@ -342,13 +426,13 @@ export default function PropertyDetailsPage() {
             <div className="bg-white border-b sticky top-0 z-40 px-4 py-3 shadow-sm flex items-center justify-between backdrop-blur-md bg-white/90">
                 <Link href="/">
                     <Button variant="ghost" size="sm" className="font-bold flex items-center gap-2">
-                        <ChevronLeft className="w-4 h-4" /> Voltar para busca
+                        <ChevronLeft className="w-4 h-4" /> {copy.backToSearch}
                     </Button>
                 </Link>
                 <div className="flex gap-2">
                     <Button variant="outline" size="icon" className="rounded-full h-9 w-9" onClick={() => {
                         navigator.clipboard.writeText(window.location.href)
-                        toast.success('Link copiado!')
+                        toast.success(copy.linkCopied)
                     }}>
                         <Share2 className="w-4 h-4" />
                     </Button>
@@ -394,7 +478,7 @@ export default function PropertyDetailsPage() {
 
                     <div className="absolute top-6 left-6">
                         <Badge className="bg-primary text-white border-none shadow-xl py-1.5 px-4 font-black uppercase text-[10px] tracking-widest">
-                            {(property as any).type?.name}
+                            {resolveTypeLabel(property)}
                         </Badge>
                     </div>
                 </div>
@@ -411,7 +495,7 @@ export default function PropertyDetailsPage() {
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </Button>
-                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Fotos</span>
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{copy.photosLabel}</span>
                         <Button
                             variant="outline"
                             size="icon"
@@ -453,6 +537,45 @@ export default function PropertyDetailsPage() {
                     </div>
                 </div>
             </section>
+
+            {hasMultiplePlants && (
+                <section className="container max-w-7xl mx-auto px-4 pb-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 className="text-xl font-black text-slate-900">{copy.otherPlantsTitle}</h3>
+                            <p className="text-xs text-muted-foreground">{copy.otherPlantsSubtitle}</p>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {availablePlants.map((plant, idx) => {
+                            const priceInfo = getPriceInfo(plant)
+                            const isActive = plant.id === activePlantId
+                            const plantLabel = plant.plan_index || (idx + 1)
+                            return (
+                                <button
+                                    key={plant.id}
+                                    type="button"
+                                    onClick={() => handleSelectPlant(plant)}
+                                    className={`text-left border rounded-2xl p-5 transition-all ${isActive ? 'border-primary bg-primary/5 shadow-lg' : 'border-slate-200 bg-white hover:border-primary/40'}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">Planta {plantLabel}</span>
+                                        {isActive && <Badge className="bg-primary text-white border-none text-[10px]">Selecionada</Badge>}
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-4 text-xs font-bold text-slate-500">
+                                        <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" /> {plant.specs?.quartos || 0}</span>
+                                        <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5" /> {plant.specs?.banheiros || 0}</span>
+                                        <span className="flex items-center gap-1"><Maximize className="w-3.5 h-3.5" /> {plant.specs?.area_total || 0}m²</span>
+                                    </div>
+                                    <div className="mt-4 text-sm font-black text-primary">
+                                        {priceInfo.valueText}
+                                    </div>
+                                </button>
+                            )
+                        })}
+                    </div>
+                </section>
+            )}
 
             {/* Lightbox Modal */}
             <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
@@ -526,7 +649,7 @@ export default function PropertyDetailsPage() {
                                         <div key={field.id} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center justify-center gap-1 group hover:border-primary/30 transition-all">
                                             <Icon className="w-6 h-6 text-primary mb-1" style={{ color: 'var(--primary)' }} />
                                             <span className="text-xl font-black text-slate-900">{typeof val === 'boolean' ? (val ? 'Sim' : 'Não') : val}</span>
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{field.label}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{resolveFieldLabel(field)}</span>
                                         </div>
                                     )
                                 })
@@ -589,7 +712,7 @@ export default function PropertyDetailsPage() {
                         <CardHeader className="bg-slate-50/50 pt-8 px-8">
                             <CardTitle className="text-xl font-black flex items-center gap-2">
                                 <div className="h-6 w-1.5 bg-primary rounded-full" />
-                                Descrição do Imóvel
+                                {copy.descriptionTitle}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-8">
@@ -613,7 +736,7 @@ export default function PropertyDetailsPage() {
                                     <CardHeader className="bg-slate-50/50 pt-6 px-8">
                                         <CardTitle className="text-lg font-black capitalize flex items-center gap-2">
                                             <div className="h-4 w-1 bg-primary rounded-full" />
-                                            {sect.replace('_', ' ')}
+                                            {copy.sectionLabels[sect as keyof typeof copy.sectionLabels] || sect.replace('_', ' ')}
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent className="p-8">
@@ -629,7 +752,7 @@ export default function PropertyDetailsPage() {
                                                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
                                                                 <Icon className="w-4 h-4" />
                                                             </div>
-                                                            <span className="text-sm font-semibold text-slate-600">{field.label}</span>
+                                                            <span className="text-sm font-semibold text-slate-600">{resolveFieldLabel(field)}</span>
                                                         </div>
                                                         <div className="text-sm font-black text-slate-900">
                                                             {typeof val === 'boolean' ? (val ? 'Sim' : 'Não') : val}
@@ -676,7 +799,7 @@ export default function PropertyDetailsPage() {
                     <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white">
                         <CardHeader className="bg-slate-50/50 pt-8 px-8">
                             <CardTitle className="text-xl font-black flex items-center gap-2">
-                                <MapPin className="w-5 h-5 text-primary" /> Localização Privilegiada
+                                <MapPin className="w-5 h-5 text-primary" /> {copy.primeLocation}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
@@ -779,7 +902,7 @@ export default function PropertyDetailsPage() {
                                             >
                                                 <MessageSquare className="w-5 h-5 mr-3 text-emerald-400 group-hover:text-white" />
                                                 <div className="flex flex-col items-start">
-                                                    <span className="font-bold text-xs">Atendimento</span>
+                                                    <span className="font-bold text-xs">{copy.service}</span>
                                                     <span className="text-[10px] opacity-70">Brasil (WhatsApp)</span>
                                                 </div>
                                             </Button>
@@ -800,7 +923,7 @@ export default function PropertyDetailsPage() {
                                         <a href={`tel:${companyInfo.whatsapp}`} className="block">
                                             <Button variant="outline" className="w-full h-14 rounded-2xl border-white/20 bg-white/5 hover:bg-white hover:text-primary transition-all group">
                                                 <Phone className="w-5 h-5 mr-3 text-white/60 group-hover:text-primary" />
-                                                <span className="font-bold">Ligar agora</span>
+                                                <span className="font-bold">{copy.callNow}</span>
                                             </Button>
                                         </a>
                                         {companyInfo.email && (
@@ -811,7 +934,7 @@ export default function PropertyDetailsPage() {
                                             >
                                                 <Button variant="outline" className="w-full h-14 rounded-2xl border-white/20 bg-white/5 hover:bg-white hover:text-primary transition-all group">
                                                     <Mail className="w-5 h-5 mr-3 text-white/60 group-hover:text-primary" />
-                                                    <span className="font-bold">Enviar e-mail</span>
+                                                    <span className="font-bold">{copy.sendEmail}</span>
                                                 </Button>
                                             </a>
                                         )}
@@ -852,8 +975,8 @@ export default function PropertyDetailsPage() {
                 <section className="container max-w-7xl mx-auto px-4 mt-20">
                     <div className="flex items-center justify-between mb-8">
                         <div>
-                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Imóveis Similares</h2>
-                            <p className="text-muted-foreground font-medium">Outras opções que podem lhe interessar neste perfil</p>
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">{copy.similarTitle}</h2>
+                            <p className="text-muted-foreground font-medium">{copy.similarSubtitle}</p>
                         </div>
                         <Link href="/#imoveis">
                             <Button variant="ghost" className="font-bold text-primary hover:text-primary/80 hover:bg-primary/5">
@@ -866,7 +989,7 @@ export default function PropertyDetailsPage() {
                         {similarProperties.map((p: any) => {
                             const priceInfo = getPriceInfo(p as Property)
                             return (
-                            <Link key={p.id} href={`/imoveis/${p.slug}`} className="group">
+                            <Link key={p.id} href={`${propertyBasePath}/${p.slug}`} className="group">
                                 <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white hover:shadow-xl transition-all duration-500 hover:-translate-y-1">
                                     <div className="relative aspect-video overflow-hidden">
                                         <img
@@ -876,7 +999,7 @@ export default function PropertyDetailsPage() {
                                         />
                                         <div className="absolute top-3 left-3">
                                             <Badge className="bg-white/90 backdrop-blur-md text-slate-900 border-none font-bold text-[10px] uppercase">
-                                                {p.type?.name}
+                                                {resolveTypeLabel(p as Property)}
                                             </Badge>
                                         </div>
                                     </div>

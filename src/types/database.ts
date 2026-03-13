@@ -20,6 +20,7 @@ export interface PropertyType {
     description: string | null
     is_active: boolean
     created_at: string
+    types_label_eng?: string | null
 }
 
 export interface Property {
@@ -27,7 +28,7 @@ export interface Property {
     code: string
     title: string
     value: number | null
-    type?: { name: string }
+    type?: { name: string; types_label_eng?: string | null }
     description: string | null
     status: string
     type_id: string | null
@@ -42,6 +43,9 @@ export interface Property {
     address_uf: string | null
     address_country: string
     is_exterior: boolean
+    locale?: string | null
+    plan_index?: number | null
+    property_group_id?: string | null
 
     real_estate_code: string | null
     internal_code: string | null
@@ -89,6 +93,7 @@ export interface PropertyStatus {
     description?: string | null
     created_at: string
     updated_at?: string | null
+    status_label_eng?: string | null
 }
 
 export interface Lead {
@@ -127,6 +132,7 @@ export interface CMSField {
     show_in_summary: boolean
     summary_order: number
     created_at: string
+    fields_label_eng?: string | null
 }
 
 export interface CMSSettings {

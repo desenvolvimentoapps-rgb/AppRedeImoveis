@@ -18,10 +18,14 @@ export const normalizePropertyStatus = (status: any): PropertyStatus => {
         is_active: status?.is_active !== false,
         description: status?.description ?? null,
         created_at: status?.created_at || new Date().toISOString(),
+        status_label_eng: status?.status_label_eng ?? null,
     }
 }
 
-export const resolveStatusLabel = (value: string | null | undefined, statuses: PropertyStatus[]) => {
+export const resolveStatusLabel = (value: string | null | undefined, statuses: PropertyStatus[], locale: 'pt-BR' | 'en' = 'pt-BR') => {
     if (!value) return ''
-    return statuses.find((status) => status.value === value)?.label || value
+    const status = statuses.find((item) => item.value === value)
+    if (!status) return value
+    if (locale === 'en') return status.status_label_eng || status.label
+    return status.label
 }

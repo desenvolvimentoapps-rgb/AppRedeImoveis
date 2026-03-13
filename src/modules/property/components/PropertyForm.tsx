@@ -27,6 +27,8 @@ interface PropertyFormProps {
     isEditing?: boolean
 }
 
+const PLANTAS_FIELD_ID = '577205f5-8719-4b6b-abb5-5bb58dd20752'
+
 const formatCodePrefix = (raw: string) => {
     const trimmed = (raw || '').toString().trim()
     if (!trimmed) return ''
@@ -112,6 +114,8 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
             description: '',
             status: 'available',
             type_id: '',
+            locale: 'pt-BR',
+            plan_index: 1,
             address_cep: '',
             address_street: '',
             address_neighborhood: '',
@@ -140,18 +144,52 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
             tour_360_url: '',
         }
     )
+    const [groupPlants, setGroupPlants] = useState<Property[]>([])
+    const [activePlantId, setActivePlantId] = useState<string | null>(initialData?.id ?? null)
+
+    const plantasField = useMemo(() => {
+        return fields.find(f => f.id === PLANTAS_FIELD_ID) || fields.find(f => f.name?.toLowerCase() === 'plantas')
+    }, [fields])
+    const plantasFieldName = plantasField?.name
+
+    const plantCount = useMemo(() => {
+        if (!plantasFieldName) return 1
+        const raw = (formData.specs as any)?.[plantasFieldName]
+        const parsed = Number(raw)
+        if (!Number.isFinite(parsed) || parsed <= 0) return 1
+        return parsed
+    }, [formData.specs, plantasFieldName])
+    useEffect(() => {
+        if (!plantasFieldName) return
+        const current = (formData.specs as any)?.[plantasFieldName]
+        if (current === undefined || current === null || current === '') {
+            setFormData(prev => ({
+                ...prev,
+                specs: {
+                    ...(prev.specs as object || {}),
+                    [plantasFieldName]: 1,
+                },
+            }))
+        }
+    }, [plantasFieldName])
 
     // Filter fields based on selected property type
     const filteredFields = useMemo(() => {
         return fields.filter(f =>
-            !f.property_type_id || f.property_type_id === formData.type_id
+            (!f.property_type_id || f.property_type_id === formData.type_id)
+            && f.id !== PLANTAS_FIELD_ID
+            && (!plantasFieldName || f.name !== plantasFieldName)
         )
-    }, [fields, formData.type_id])
+    }, [fields, formData.type_id, plantasFieldName])
 
     const statusOptions = statuses.length ? statuses : DEFAULT_PROPERTY_STATUSES
     const activeStatusOptions = statusOptions.filter(s => s.is_active)
-    const selectedStatusLabel = resolveStatusLabel(formData.status, statusOptions) || 'Disponível'
-    const selectedTypeLabel = types.find(t => t.id === formData.type_id)?.name || 'Selecione o tipo'
+    const isEnglishLocale = formData.locale === 'en'
+    const selectedStatusLabel = resolveStatusLabel(formData.status, statusOptions, isEnglishLocale ? 'en' : 'pt-BR') || 'Disponível'
+    const selectedType = types.find(t => t.id === formData.type_id)
+    const selectedTypeLabel = isEnglishLocale
+        ? (selectedType?.types_label_eng || selectedType?.name || 'Selecione o tipo')
+        : (selectedType?.name || 'Selecione o tipo')
     const useDynamicPrefix = !!companyInfo?.use_dynamic_prefix
     const basePrefix = formatCodePrefix(companyInfo?.code_prefix || 'OLI-')
 
@@ -177,6 +215,33 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
 
         fetchLookups()
     }, [supabase])
+
+    useEffect(() => {
+        if (!isEditing || !initialData?.property_group_id) {
+            setGroupPlants([])
+            return
+        }
+
+        const fetchGroupPlants = async () => {
+            const locale = initialData.locale || 'pt-BR'
+            const { data, error } = await supabase
+                .from('properties')
+                .select('*')
+                .eq('property_group_id', initialData.property_group_id)
+                .eq('locale', locale)
+                .order('plan_index', { ascending: true })
+
+            if (error || !data || data.length === 0) return
+            const groupList = data as Property[]
+            const current = groupList.find((item) => item.id === initialData.id) || groupList[0]
+            setGroupPlants(groupList)
+            setFormData(current)
+            setActivePlantId(current.id)
+            setIsSeoTitleDirty(!!current.seo_title)
+        }
+
+        fetchGroupPlants()
+    }, [isEditing, initialData?.property_group_id, initialData?.locale, initialData?.id, supabase])
 
 useEffect(() => {
     if (isSeoTitleDirty) return
@@ -221,6 +286,13 @@ useEffect(() => {
     types
 ])
 
+    useEffect(() => {
+        if (!isEditing || groupPlants.length === 0 || !formData.id) return
+        setGroupPlants(prev =>
+            prev.map((plant) => plant.id === formData.id ? ({ ...plant, ...formData } as Property) : plant)
+        )
+    }, [formData, isEditing, groupPlants.length])
+
     const handleCepSearch = async () => {
         const cep = formData.address_cep?.replace(/\D/g, '')
         if (cep?.length !== 8) {
@@ -252,13 +324,37 @@ useEffect(() => {
     }
 
     const handleDynamicChange = (section: 'specs' | 'amenities' | 'features', name: string, value: any) => {
+        let nextValue = value
+        if (section === 'specs' && plantasFieldName && name === plantasFieldName) {
+            const parsed = Number(value)
+            nextValue = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+        }
         setFormData(prev => ({
             ...prev,
             [section]: {
                 ...(prev[section] as object || {}),
-                [name]: value
+                [name]: nextValue
             }
         }))
+    }
+
+    const handlePlantCountChange = (value: number) => {
+        if (!plantasFieldName) return
+        const parsed = Number(value)
+        const safeValue = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+        setFormData(prev => ({
+            ...prev,
+            specs: {
+                ...(prev.specs as object || {}),
+                [plantasFieldName]: safeValue,
+            },
+        }))
+    }
+
+    const handleSelectPlant = (plant: Property) => {
+        setFormData(plant)
+        setActivePlantId(plant.id)
+        setIsSeoTitleDirty(!!plant.seo_title)
     }
 
     const pricing = (formData.features as any)?.pricing || { mode: 'exact', label: 'Preços a partir de' }
@@ -299,68 +395,131 @@ useEffect(() => {
             const seoTitleSanitized = sanitizeSeoInput(rawSeoTitle || '')
             const fallbackBase = sanitizeSlugBase(formData.title || formData.code || 'imovel')
             const slugBase = seoTitleSanitized || fallbackBase
+            const slugBaseSafe = (slugBase || '').replace(/-+$/g, '')
+            const updatedAt = new Date().toISOString()
+            const normalizedPlantCount = Math.max(1, Math.floor(plantCount || 1))
 
             const payload: Partial<Property> = {
                 ...formData,
                 seo_title: seoTitleSanitized || formData.seo_title,
-                updated_at: new Date().toISOString()
+                updated_at: updatedAt,
             }
 
-            if (isEditing && initialData) {
-                const codeForSlug = payload.real_estate_code || payload.code || initialData.real_estate_code || initialData.code || ''
-                const slugSuffix = sanitizeCodeForSlug(codeForSlug).replace(/^-+/g, '')
-                const slugBaseSafe = (slugBase || '').replace(/-+$/g, '')
-                const finalSlug = [slugBaseSafe, slugSuffix].filter(Boolean).join('-')
-                payload.slug = finalSlug
-                const { error } = await supabase.from('properties').update(payload).eq('id', initialData.id)
+            if (isEditing && (formData.id || initialData)) {
+                if (formData.locale !== 'en') {
+                    const codeForSlug = payload.real_estate_code || payload.code || initialData?.real_estate_code || initialData?.code || ''
+                    const slugSuffix = sanitizeCodeForSlug(codeForSlug).replace(/^-+/g, '')
+                    const finalSlug = [slugBaseSafe, slugSuffix].filter(Boolean).join('-')
+                    payload.slug = finalSlug
+                } else {
+                    payload.slug = formData.slug || initialData?.slug || payload.slug
+                }
+                const targetId = (formData.id || initialData?.id) as string
+                const { error } = await supabase.from('properties').update(payload).eq('id', targetId)
                 if (error) throw error
                 toast.success('Imóvel atualizado com sucesso!')
-            } else {
-                if (!payload.code) {
-                    const defaultPrefix = basePrefix || 'OLI-'
-                    const rawPrefix = useDynamicPrefix && customPrefix.trim() ? customPrefix : defaultPrefix
-                    const finalPrefix = formatCodePrefix(rawPrefix || 'OLI-')
+                router.refresh()
+                return
+            }
 
-                    const { data: codeRows } = await supabase
-                        .from('properties')
-                        .select('code')
-                        .order('created_at', { ascending: false })
-                        .limit(50)
+            const isExterior = !!formData.is_exterior
+            const totalPlants = normalizedPlantCount
+            const totalLocales = isExterior ? 2 : 1
+            const totalRecords = totalPlants * totalLocales
+            const groupId = (isExterior || totalPlants > 1) ? crypto.randomUUID() : null
 
-                    const maxNumber = Math.max(0, ...(codeRows || []).map((row: any) => extractCodeNumber(row.code)))
-                    const nextNumber = maxNumber + 1
-                    const nextCode = `${finalPrefix}${String(nextNumber).padStart(6, '0')}`
+            const defaultPrefix = basePrefix || 'OLI-'
+            const rawPrefix = useDynamicPrefix && customPrefix.trim() ? customPrefix : defaultPrefix
+            const finalPrefix = formatCodePrefix(rawPrefix || 'OLI-')
 
-                    payload.code = nextCode
-                    if (!payload.real_estate_code) payload.real_estate_code = nextCode
+            const { data: codeRows } = await supabase
+                .from('properties')
+                .select('code')
+                .order('created_at', { ascending: false })
+                .limit(100)
+
+            const maxNumber = Math.max(0, ...(codeRows || []).map((row: any) => extractCodeNumber(row.code)))
+            const codes = Array.from({ length: totalRecords }, (_, idx) =>
+                `${finalPrefix}${String(maxNumber + idx + 1).padStart(6, '0')}`
+            )
+
+            const baseSpecs = {
+                ...(formData.specs as object || {}),
+                ...(plantasFieldName ? { [plantasFieldName]: totalPlants } : {}),
+            }
+            const baseAmenities = { ...(formData.amenities as object || {}) }
+            const baseFeatures = { ...(formData.features as object || {}) }
+            const baseImages = [...(formData.images || [])]
+
+            let codeCursor = 0
+            const records: Partial<Property>[] = []
+
+            for (let index = 0; index < totalPlants; index++) {
+                const planIndex = index + 1
+                const brCode = codes[codeCursor++]
+                const brPayload: Partial<Property> = {
+                    ...formData,
+                    locale: 'pt-BR',
+                    plan_index: planIndex,
+                    property_group_id: groupId,
+                    code: brCode,
+                    real_estate_code: brCode,
+                    specs: { ...baseSpecs },
+                    amenities: { ...baseAmenities },
+                    features: { ...baseFeatures },
+                    images: [...baseImages],
+                    seo_title: seoTitleSanitized || formData.seo_title,
+                    updated_at: updatedAt,
                 }
 
-                const codeForSlug = payload.real_estate_code || payload.code || ''
-                const slugSuffix = sanitizeCodeForSlug(codeForSlug).replace(/^-+/g, '')
-                const slugBaseSafe = (slugBase || '').replace(/-+$/g, '')
-                const finalSlug = [slugBaseSafe, slugSuffix].filter(Boolean).join('-')
-                payload.slug = finalSlug
+                const brSlugSuffix = sanitizeCodeForSlug(brPayload.real_estate_code || brPayload.code || '').replace(/^-+/g, '')
+                const brSlug = [slugBaseSafe, brSlugSuffix].filter(Boolean).join('-')
+                brPayload.slug = brSlug
+                records.push(brPayload)
 
-if (
-  !confirm(
-    `🔗 Link final para cadastro do imóvel:
+                if (isExterior) {
+                    const enCode = codes[codeCursor++]
+                    const enPayload: Partial<Property> = {
+                        ...brPayload,
+                        locale: 'en',
+                        code: enCode,
+                        real_estate_code: enCode,
+                        slug: brSlug,
+                    }
+                    records.push(enPayload)
+                }
+            }
 
-imoveis/${finalSlug}
+            const primarySlug = records.find(r => r.locale === 'pt-BR' && r.plan_index === 1)?.slug || records[0]?.slug || ''
+            const confirmMessage = `🔗 Link final para cadastro do imóvel:
+
+imoveis/${primarySlug}
+${isExterior ? `\nVersão EN:\nimoveis/en/${primarySlug}` : ''}
+
+Plantas: ${totalPlants}
 
 ⚠️ Não é recomendado alterar após a criação do imóvel, pois pode gerar erros e impactar buscas futuras.
 
 Deseja continuar mesmo assim?`
-  )
-) {
-  setIsLoading(false)
-  return
-}
 
-                const { error } = await supabase.from('properties').insert([payload])
-                if (error) throw error
-                toast.success('Imóvel cadastrado com sucesso!')
+            if (!confirm(confirmMessage)) {
+                setIsLoading(false)
+                return
             }
-            router.push('/admin/properties')
+
+            const { data: inserted, error } = await supabase
+                .from('properties')
+                .insert(records)
+                .select('id, locale, plan_index')
+            if (error) throw error
+
+            const primary = inserted?.find((item: any) => item.locale === 'pt-BR' && item.plan_index === 1) || inserted?.[0]
+            toast.success('Imóvel cadastrado com sucesso!')
+            if (primary?.id) {
+                router.push(`/admin/properties/${primary.id}`)
+            } else {
+                router.push('/admin/properties')
+            }
             router.refresh()
         } catch (error: any) {
             toast.error('Erro ao salvar', { description: error.message })
@@ -384,6 +543,27 @@ Deseja continuar mesmo assim?`
                     </Button>
                 </div>
             </div>
+
+            {isEditing && groupPlants.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 pb-2">
+                    <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Plantas</span>
+                    {groupPlants.map((plant, idx) => {
+                        const labelIndex = plant.plan_index || (idx + 1)
+                        const isActive = plant.id === activePlantId
+                        return (
+                            <Button
+                                key={plant.id}
+                                type="button"
+                                size="sm"
+                                variant={isActive ? 'default' : 'outline'}
+                                onClick={() => handleSelectPlant(plant)}
+                            >
+                                Planta {labelIndex}
+                            </Button>
+                        )
+                    })}
+                </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-8">
@@ -424,15 +604,31 @@ Deseja continuar mesmo assim?`
                                             <span className="flex-1 text-left">{selectedStatusLabel}</span>
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {activeStatusOptions.map((status) => (
-                                                <SelectItem key={status.id} value={status.value}>
-                                                    {status.label}
-                                                </SelectItem>
-                                            ))}
+                                        {activeStatusOptions.map((status) => (
+                                            <SelectItem key={status.id} value={status.value}>
+                                                    {isEnglishLocale ? (status.status_label_eng || status.label) : status.label}
+                                            </SelectItem>
+                                        ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
                             </div>
+                            {plantasFieldName && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="plant_count">Número de plantas</Label>
+                                    <Input
+                                        id="plant_count"
+                                        type="number"
+                                        min={1}
+                                        value={plantCount}
+                                        onChange={e => handlePlantCountChange(Number(e.target.value))}
+                                        disabled={isEditing}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Sincronizado com o campo CMS &quot;{plantasFieldName}&quot;.
+                                    </p>
+                                </div>
+                            )}
                             <div className="flex flex-col gap-4 rounded-xl border p-4 bg-slate-50">
                                 <div className="flex items-center justify-between">
                                     <div className="space-y-1">
@@ -476,7 +672,9 @@ Deseja continuar mesmo assim?`
                                     </SelectTrigger>
                                     <SelectContent>
                                         {types.map(t => (
-                                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                            <SelectItem key={t.id} value={t.id}>
+                                                {isEnglishLocale ? (t.types_label_eng || t.name) : t.name}
+                                            </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -511,8 +709,8 @@ Deseja continuar mesmo assim?`
                                     onCheckedChange={v => setFormData({ ...formData, is_exterior: v })}
                                 />
                                 <div className="space-y-0.5">
-                                    <Label htmlFor="is_exterior" className="font-semibold cursor-pointer text-slate-900">Imóvel no Exterior</Label>
-                                    <p className="text-[10px] text-muted-foreground">Selecione para preenchimento manual de endereço internacional</p>
+                                    <Label htmlFor="is_exterior" className="font-semibold cursor-pointer text-slate-900">Cadastro imóvel exterior</Label>
+                                    <p className="text-[10px] text-muted-foreground">Ativa endereço internacional e cria versão EN automaticamente</p>
                                 </div>
                             </div>
 
@@ -585,6 +783,7 @@ Deseja continuar mesmo assim?`
                                             field={field}
                                             value={formData[sect === 'ficha_tecnica' ? 'specs' : sect === 'comodidades' ? 'amenities' : 'features' as 'specs' | 'amenities' | 'features']?.[field.name]}
                                             onChange={(v) => handleDynamicChange(sect === 'ficha_tecnica' ? 'specs' : sect === 'comodidades' ? 'amenities' : 'features' as 'specs' | 'amenities' | 'features', field.name, v)}
+                                            useEnglish={formData.locale === 'en'}
                                         />
                                     ))}
                                     {filteredFields.filter(f => f.section === sect).length === 0 && (

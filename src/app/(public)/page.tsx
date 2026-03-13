@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, MapPin, Bed, Bath, Maximize, ArrowRight, Loader2, SlidersHorizontal, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Search, MapPin, Bed, Bath, Maximize, ArrowRight, Loader2, SlidersHorizontal, ChevronRight, ChevronLeft, Home } from 'lucide-react'
 import Link from 'next/link'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -16,10 +16,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
+const PLANTAS_FIELD_ID = '577205f5-8719-4b6b-abb5-5bb58dd20752'
+
 export default function HomePage() {
     const [properties, setProperties] = useState<Property[]>([])
     const [types, setTypes] = useState<PropertyType[]>([])
-    const [filterableFields, setFilterableFields] = useState<CMSField[]>([])
+    const [cmsFields, setCmsFields] = useState<CMSField[]>([])
     const [settings, setSettings] = useState<CMSSettings[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const supabase = createClient()
@@ -40,6 +42,12 @@ export default function HomePage() {
     const [contactMessage, setContactMessage] = useState('')
     const [isSendingContact, setIsSendingContact] = useState(false)
 
+    const filterableFields = useMemo(() => cmsFields.filter(field => field.is_filterable), [cmsFields])
+    const plantasFieldName = useMemo(() => {
+        return cmsFields.find(f => f.id === PLANTAS_FIELD_ID)?.name
+            || cmsFields.find(f => f.name?.toLowerCase() === 'plantas')?.name
+    }, [cmsFields])
+
     const fetchSettings = useCallback(async () => {
         const { data } = await supabase.from('cms_settings').select('*')
         if (data) setSettings(data)
@@ -49,9 +57,9 @@ export default function HomePage() {
         if (!options?.silent) setIsLoading(true)
         try {
             const [propRes, typeRes, fieldRes] = await Promise.all([
-                supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
+                supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).eq('locale', 'pt-BR').eq('plan_index', 1).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
                 supabase.from('property_types').select('*').eq('is_active', true).order('name'),
-                supabase.from('cms_fields').select('*').eq('is_filterable', true)
+                supabase.from('cms_fields').select('*')
             ])
 
             if (propRes.error) throw propRes.error
@@ -60,7 +68,7 @@ export default function HomePage() {
 
             if (propRes.data) setProperties(propRes.data)
             if (typeRes.data) setTypes(typeRes.data)
-            if (fieldRes.data) setFilterableFields(fieldRes.data)
+            if (fieldRes.data) setCmsFields(fieldRes.data)
         } catch (error: any) {
             if (!options?.silent) {
                 toast.error('Erro ao carregar imóveis', { description: error?.message })
@@ -77,6 +85,7 @@ export default function HomePage() {
         const channel = supabase
             .channel('home-updates')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => fetchData({ silent: true }))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_fields' }, () => fetchData({ silent: true }))
             .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_settings' }, fetchSettings)
             .subscribe()
 
@@ -383,6 +392,11 @@ export default function HomePage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
                             {currentProperties.map(p => {
                                 const priceInfo = getPriceInfo(p)
+                                const rawPlantCount = plantasFieldName
+                                    ? (p.specs as any)?.[plantasFieldName]
+                                    : (p.specs as any)?.plantas ?? (p.specs as any)?.Plantas
+                                const parsedPlantCount = Number(rawPlantCount)
+                                const plantCount = Number.isFinite(parsedPlantCount) && parsedPlantCount > 1 ? parsedPlantCount : 1
                                 return (
                                 <Link key={p.id} href={`/imoveis/${p.slug}`} className="group">
                                     <Card className="h-full overflow-hidden border-none shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 rounded-3xl bg-white border border-slate-100 flex flex-col">
@@ -413,6 +427,11 @@ export default function HomePage() {
                                             <div className="space-y-6">
                                                 <div className="flex items-center justify-between gap-2 p-1 bg-slate-50/50 rounded-2xl border border-slate-100">
                                                     <div className="flex flex-col items-center flex-1 py-1 px-2 border-r border-slate-200/50">
+                                                        <Home className="w-4 h-4 text-primary mb-1" />
+                                                        <span className="text-xs font-black text-slate-800">{p.specs?.Plantas || 1}</span>
+                                                        <span className="text-[8px] uppercase tracking-wider text-slate-400 font-bold">Opções</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center flex-1 py-1 px-2 border-r border-slate-200/50">
                                                         <Bed className="w-4 h-4 text-primary mb-1" />
                                                         <span className="text-xs font-black text-slate-800">{p.specs?.quartos || 0}</span>
                                                         <span className="text-[8px] uppercase tracking-wider text-slate-400 font-bold">Quartos</span>
@@ -427,6 +446,13 @@ export default function HomePage() {
                                                         <span className="text-xs font-black text-slate-800">{p.specs?.area_total || 0}</span>
                                                         <span className="text-[8px] uppercase tracking-wider text-slate-400 font-bold">m² Área</span>
                                                     </div>
+                                                    {plantCount > 1 && (
+                                                        <div className="flex flex-col items-center flex-1 py-1 px-2 border-l border-slate-200/50">
+                                                            <Home className="w-4 h-4 text-primary mb-1" />
+                                                            <span className="text-xs font-black text-slate-800">{plantCount}</span>
+                                                            <span className="text-[8px] uppercase tracking-wider text-slate-400 font-bold">Plantas</span>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <p className="text-sm text-slate-500 line-clamp-2 leading-relaxed h-10">{p.description}</p>
                                             </div>

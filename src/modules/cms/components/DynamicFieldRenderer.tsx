@@ -15,9 +15,10 @@ interface DynamicFieldRendererProps {
     value: any
     onChange: (value: any) => void
     disabled?: boolean
+    useEnglish?: boolean
 }
 
-export function DynamicFieldRenderer({ field, value, onChange, disabled }: DynamicFieldRendererProps) {
+export function DynamicFieldRenderer({ field, value, onChange, disabled, useEnglish }: DynamicFieldRendererProps) {
     const normalizeIconName = (name: string) => {
         if (!name) return 'Info'
         // Convert kebab-case or space-separated to PascalCase
@@ -30,12 +31,13 @@ export function DynamicFieldRenderer({ field, value, onChange, disabled }: Dynam
 
     const iconName = normalizeIconName(field.icon || 'Info')
     const IconComponent = (LucideIcons as any)[iconName] || LucideIcons.Info
+    const displayLabel = useEnglish && field.fields_label_eng ? field.fields_label_eng : field.label
 
     const LabelWithInfo = () => (
         <div className="flex items-center gap-1.5 mb-1">
             <IconComponent className="w-3.5 h-3.5 text-muted-foreground" />
             <Label htmlFor={field.name} className="text-xs font-semibold uppercase tracking-wider">
-                {field.label} {field.is_required && <span className="text-destructive">*</span>}
+                {displayLabel} {field.is_required && <span className="text-destructive">*</span>}
             </Label>
             {field.instruction && (
                 <TooltipProvider>
@@ -61,7 +63,7 @@ export function DynamicFieldRenderer({ field, value, onChange, disabled }: Dynam
                     </div>
                     <div className="flex flex-col">
                         <Label htmlFor={field.name} className="cursor-pointer font-medium">
-                            {field.label}
+                            {displayLabel}
                         </Label>
                         {field.instruction && <p className="text-[10px] text-muted-foreground">{field.instruction}</p>}
                     </div>
@@ -84,7 +86,7 @@ export function DynamicFieldRenderer({ field, value, onChange, disabled }: Dynam
                     id={field.name}
                     value={value ?? ''}
                     onChange={(e) => onChange(e.target.value)}
-                    placeholder={field.placeholder || `Informe ${field.label.toLowerCase()}`}
+                    placeholder={field.placeholder || `Informe ${displayLabel.toLowerCase()}`}
                     disabled={disabled}
                     className="min-h-[100px]"
                 />
@@ -119,7 +121,7 @@ export function DynamicFieldRenderer({ field, value, onChange, disabled }: Dynam
                 type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
                 value={value ?? ''}
                 onChange={(e) => onChange(field.type === 'number' ? Number(e.target.value) : e.target.value)}
-                placeholder={field.placeholder || `Informe ${field.label.toLowerCase()}`}
+                placeholder={field.placeholder || `Informe ${displayLabel.toLowerCase()}`}
                 disabled={disabled}
                 className="focus-visible:ring-primary"
             />

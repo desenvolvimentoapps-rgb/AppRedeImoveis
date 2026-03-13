@@ -435,7 +435,7 @@ export default function PropertiesListPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-1">
-                                        <Link href={`/imoveis/${p.slug}`} target="_blank">
+                                        <Link href={`${p.locale === 'en' ? '/imoveis/en' : '/imoveis'}/${p.slug}`} target="_blank">
                                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Ver no site"><ExternalLink className="w-4 h-4 text-slate-500" /></Button>
                                         </Link>
                                         {canEdit ? (

@@ -8,6 +8,7 @@ export interface Profile {
     phone: string | null
     avatar_url?: string | null
     force_password_reset: boolean
+    permissions?: any
     created_at: string
     updated_at: string
 }
@@ -56,6 +57,8 @@ export interface Property {
     show_whatsapp_br: boolean
     show_whatsapp_intl: boolean
 
+    tour_360_url?: string | null
+
     images: string[]
     main_image_index: number
 
@@ -78,6 +81,16 @@ export interface Property {
     updated_at: string
 }
 
+export interface PropertyStatus {
+    id: string
+    label: string
+    value: string
+    is_active: boolean
+    description?: string | null
+    created_at: string
+    updated_at?: string | null
+}
+
 export interface Lead {
     id: string
     property_id: string | null
@@ -87,6 +100,13 @@ export interface Lead {
     message: string | null
     status: string
     created_at: string
+    date_contato?: string | null
+    action_contato?: string | null
+    property?: {
+        title?: string | null
+        code?: string | null
+        type?: { name?: string | null } | null
+    } | null
 }
 
 export interface CMSField {

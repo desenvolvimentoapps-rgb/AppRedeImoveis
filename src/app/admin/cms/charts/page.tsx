@@ -1,15 +1,17 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Profile } from '@/types/database'
+import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission } from '@/lib/permissions'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -36,16 +38,32 @@ export default function ChartsManagementPage() {
         data_source: 'properties',
         config: { color: '#0f172a', groupBy: 'status' }
     })
+    const { profile } = useAuthStore()
     const supabase = createClient()
+    const canCreateChart = hasPermission(profile, 'charts', 'create')
+    const canEditChart = hasPermission(profile, 'charts', 'edit')
+    const canDeleteChart = hasPermission(profile, 'charts', 'delete')
 
     useEffect(() => {
-        fetchData()
-    }, [])
+        if (profile) fetchData()
+    }, [profile])
 
     const fetchData = async () => {
         setIsLoading(true)
+        let chartQuery = supabase.from('dashboard_charts').select('*').order('created_at', { ascending: false })
+
+        if (profile?.role !== 'hakunaadm') {
+            const { data: visibleChartIds } = await supabase
+                .from('chart_visibility')
+                .select('chart_id')
+                .eq('profile_id', profile?.id)
+
+            const ids = (visibleChartIds || []).map((v: { chart_id: string }) => v.chart_id)
+            chartQuery = chartQuery.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
+        }
+
         const [chartRes, profileRes] = await Promise.all([
-            supabase.from('dashboard_charts').select('*').order('created_at', { ascending: false }),
+            chartQuery,
             supabase.from('profiles').select('*').order('full_name')
         ])
 
@@ -55,6 +73,10 @@ export default function ChartsManagementPage() {
     }
 
     const handleCreateChart = async () => {
+        if (!canCreateChart) {
+            toast.error('Sem permissão para criar gráficos')
+            return
+        }
         if (!newChart.title) return toast.error('Título é obrigatório')
 
         try {
@@ -76,6 +98,10 @@ export default function ChartsManagementPage() {
     }
 
     const handleDeleteChart = async (id: string) => {
+        if (!canDeleteChart) {
+            toast.error('Sem permissão para excluir gráficos')
+            return
+        }
         if (!confirm('Tem certeza que deseja excluir este gráfico?')) return
 
         try {
@@ -95,7 +121,8 @@ export default function ChartsManagementPage() {
     const openVisibility = async (chart: Chart) => {
         setSelectedChart(chart)
         const { data } = await supabase.from('chart_visibility').select('profile_id').eq('chart_id', chart.id)
-        setChartVisibility(data?.map(v => v.profile_id) || [])
+        const ids = (data || []).map((v: { profile_id: string }) => v.profile_id)
+        setChartVisibility(ids)
         setIsVisibilityOpen(true)
     }
 
@@ -125,7 +152,7 @@ export default function ChartsManagementPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Gestão de Gráficos</h1>
                     <p className="text-muted-foreground mt-1">Crie e gerencie análises dinâmicas para o dashboard</p>
                 </div>
-                <Button onClick={() => setIsCreateOpen(true)}>
+                <Button onClick={() => setIsCreateOpen(true)} disabled={!canCreateChart} title={!canCreateChart ? 'Sem permissão' : undefined}>
                     <Plus className="w-4 h-4 mr-2" /> Novo Gráfico
                 </Button>
             </div>
@@ -166,16 +193,34 @@ export default function ChartsManagementPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
-                                        <Button variant="ghost" size="icon" onClick={() => {
-                                            setNewChart(chart)
-                                            setIsCreateOpen(true)
-                                        }}>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => {
+                                                setNewChart(chart)
+                                                setIsCreateOpen(true)
+                                            }}
+                                            disabled={!canEditChart}
+                                            title={!canEditChart ? 'Sem permissão' : 'Editar'}
+                                        >
                                             <Pencil className="w-4 h-4 text-emerald-600" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => openVisibility(chart)}>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => openVisibility(chart)}
+                                            disabled={!canEditChart}
+                                            title={!canEditChart ? 'Sem permissão' : 'Visibilidade'}
+                                        >
                                             <Users className="w-4 h-4 text-blue-600" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleDeleteChart(chart.id)}>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => handleDeleteChart(chart.id)}
+                                            disabled={!canDeleteChart}
+                                            title={!canDeleteChart ? 'Sem permissão' : 'Excluir'}
+                                        >
                                             <Trash2 className="w-4 h-4 text-destructive" />
                                         </Button>
                                     </div>
@@ -267,7 +312,7 @@ export default function ChartsManagementPage() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
-                        <Button onClick={handleCreateChart}>Criar Gráfico</Button>
+                        <Button onClick={handleCreateChart} disabled={!canCreateChart}>Criar Gráfico</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -295,6 +340,7 @@ export default function ChartsManagementPage() {
                                                 variant={chartVisibility.includes(p.id) ? "default" : "outline"}
                                                 size="sm"
                                                 onClick={() => toggleVisibility(p.id)}
+                                                disabled={!canEditChart}
                                             >
                                                 {chartVisibility.includes(p.id) ? "Visível" : "Privado"}
                                             </Button>
@@ -312,3 +358,4 @@ export default function ChartsManagementPage() {
         </div>
     )
 }
+

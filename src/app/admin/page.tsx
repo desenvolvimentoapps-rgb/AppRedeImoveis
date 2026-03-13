@@ -39,7 +39,7 @@ export default function AdminDashboard() {
                 months[monthName] = 0
             }
 
-            propertiesData.data?.forEach(p => {
+            propertiesData.data?.forEach((p: { created_at: string }) => {
                 const monthName = format(new Date(p.created_at), 'MMM', { locale: ptBR })
                 if (months[monthName] !== undefined) {
                     months[monthName]++
@@ -125,7 +125,7 @@ export default function AdminDashboard() {
                     </CardHeader>
                     <CardContent className="p-6">
                         <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minHeight={240} minWidth={200}>
                                 <BarChart data={stats.chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                                     <XAxis

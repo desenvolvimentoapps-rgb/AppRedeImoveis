@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -15,7 +15,7 @@ export default function ResetPasswordPage() {
     const [password, setPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [isLoading, setIsLoading] = useState(false)
-    const { profile, refreshProfile } = useAuthStore()
+    const { profile, refreshProfile, setProfile } = useAuthStore()
     const router = useRouter()
     const supabase = createClient()
 
@@ -50,9 +50,13 @@ export default function ResetPasswordPage() {
                 if (profileError) throw profileError
             }
 
+            if (profile) {
+                setProfile({ ...profile, force_password_reset: false })
+            }
             toast.success('Senha atualizada com sucesso!')
             await refreshProfile()
             router.push('/admin')
+            router.refresh()
         } catch (error: any) {
             toast.error('Erro ao atualizar senha', { description: error.message })
         } finally {
@@ -129,3 +133,4 @@ export default function ResetPasswordPage() {
         </div>
     )
 }
+

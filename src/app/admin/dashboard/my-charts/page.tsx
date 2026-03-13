@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -31,19 +31,22 @@ export default function MyChartsPage() {
     const fetchChartsAndData = async () => {
         setIsLoading(true)
 
-        // 1. Fetch available charts for this user
-        // If hakunaadm, fetch all. Otherwise filter by chart_visibility.
+        // 1. Fetch available charts for this user (respect visibility)
         let chartQuery = supabase.from('dashboard_charts').select('*')
 
-        if (profile?.role !== 'hakunaadm') {
-            const { data: visibleChartIds } = await supabase
-                .from('chart_visibility')
-                .select('chart_id')
-                .eq('profile_id', profile?.id)
+        const { data: visibleChartIds } = await supabase
+            .from('chart_visibility')
+            .select('chart_id')
+            .eq('profile_id', profile?.id)
 
-            const ids = visibleChartIds?.map(v => v.chart_id) || []
-            chartQuery = chartQuery.in('id', ids)
+        const ids = (visibleChartIds || []).map((v: { chart_id: string }) => v.chart_id)
+        if (ids.length === 0) {
+            setCharts([])
+            setDataSources({ properties: [], leads: [] })
+            setIsLoading(false)
+            return
         }
+        chartQuery = chartQuery.in('id', ids)
 
         const [chartsRes, propRes, leadRes] = await Promise.all([
             chartQuery,
@@ -183,12 +186,16 @@ export default function MyChartsPage() {
 
             {/* Expanded Chart Dialog */}
             <Dialog open={!!expandedChart} onOpenChange={() => setExpandedChart(null)}>
-                <DialogContent className="max-w-5xl h-[80vh] flex flex-col">
+                <DialogContent showCloseButton={false} className="max-w-[90vw] w-[90vw] h-[90vh] flex flex-col">
                     <DialogHeader className="flex flex-row justify-between items-center border-b pb-4 mb-4">
                         <div>
                             <DialogTitle className="text-2xl font-black">{expandedChart?.title}</DialogTitle>
                             <CardDescription>{expandedChart?.description || 'Visualização detalhada da métrica'}</CardDescription>
                         </div>
+                        <DialogClose render={<Button variant="ghost" size="icon" className="rounded-full" />}>
+                            <X className="w-4 h-4" />
+                            <span className="sr-only">Fechar</span>
+                        </DialogClose>
                     </DialogHeader>
 
                     <div className="flex-1 min-h-0 bg-slate-50 rounded-2xl p-6">
@@ -235,9 +242,12 @@ export default function MyChartsPage() {
 }
 
 function ChartRenderer({ type, data, expanded = false }: { type: string, data: any, expanded?: boolean }) {
+    const minHeight = expanded ? 360 : 220
+    const minWidth = 200
+
     if (type === 'bar') {
         return (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
                 <BarChart data={data as any}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
@@ -254,7 +264,7 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
 
     if (type === 'pie') {
         return (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
                 <PieChart>
                     <Pie
                         data={data as any}
@@ -277,7 +287,7 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
     }
 
     return (
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
             <LineChart data={data as any}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
@@ -288,3 +298,5 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
         </ResponsiveContainer>
     )
 }
+
+

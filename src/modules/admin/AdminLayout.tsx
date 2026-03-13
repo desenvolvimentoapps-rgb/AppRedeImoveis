@@ -1,8 +1,8 @@
-'use client'
+﻿'use client'
 
 import { AdminSidebar } from './components/AdminSidebar'
 import { useAuthStore } from '@/hooks/useAuth'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect } from 'react'
 
 export default function AdminLayout({
@@ -12,17 +12,21 @@ export default function AdminLayout({
 }) {
     const { profile, isLoading } = useAuthStore()
     const router = useRouter()
+    const pathname = usePathname()
+    const searchParams = useSearchParams()
 
     useEffect(() => {
         if (!isLoading && !profile) {
-            router.push('/login')
+            const query = searchParams?.toString()
+            const redirectTarget = `${pathname}${query ? `?${query}` : ''}`
+            router.push(`/login?redirect=${encodeURIComponent(redirectTarget)}`)
             return
         }
 
-        if (profile?.force_password_reset && window.location.pathname !== '/admin/reset-password') {
+        if (profile?.force_password_reset && pathname !== '/admin/reset-password') {
             router.push('/admin/reset-password')
         }
-    }, [profile, isLoading, router])
+    }, [profile, isLoading, router, pathname, searchParams])
 
     if (isLoading) {
         return (
@@ -32,7 +36,13 @@ export default function AdminLayout({
         )
     }
 
-    if (!profile) return null
+    if (!profile) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <p className="text-muted-foreground animate-pulse">Redirecionando...</p>
+            </div>
+        )
+    }
 
     return (
         <div className="flex min-h-screen bg-background text-foreground">
@@ -43,3 +53,6 @@ export default function AdminLayout({
         </div>
     )
 }
+
+
+

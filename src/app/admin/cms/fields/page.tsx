@@ -1,13 +1,15 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCMSStore } from '@/hooks/useCMS'
+import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission } from '@/lib/permissions'
 import { CMSField, PropertyType } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,6 +24,10 @@ export default function CMSFieldsPage() {
     const [isLoading, setIsLoading] = useState(false)
     const [editingField, setEditingField] = useState<CMSField | null>(null)
     const supabase = createClient()
+    const { profile } = useAuthStore()
+    const canCreate = hasPermission(profile, 'cms_fields', 'create')
+    const canEdit = hasPermission(profile, 'cms_fields', 'edit')
+    const canDelete = hasPermission(profile, 'cms_fields', 'delete')
 
     // Form states
     const [name, setName] = useState('')
@@ -54,6 +60,15 @@ export default function CMSFieldsPage() {
     }, [supabase])
 
     const handleOpenDialog = (field?: CMSField) => {
+        if (field && !canEdit) {
+            toast.error('Sem permissão para editar campos')
+            return
+        }
+        if (!field && !canCreate) {
+            toast.error('Sem permissão para criar campos')
+            return
+        }
+
         if (field) {
             setEditingField(field)
             setName(field.name)
@@ -99,6 +114,14 @@ export default function CMSFieldsPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (editingField && !canEdit) {
+            toast.error('Sem permissão para editar campos')
+            return
+        }
+        if (!editingField && !canCreate) {
+            toast.error('Sem permissão para criar campos')
+            return
+        }
         setIsLoading(true)
 
         try {
@@ -137,6 +160,10 @@ export default function CMSFieldsPage() {
     }
 
     const handleDeleteField = async (id: string) => {
+        if (!canDelete) {
+            toast.error('Sem permissão para excluir campos')
+            return
+        }
         if (!confirm('Tem certeza que deseja excluir este campo?')) return
 
         try {
@@ -156,7 +183,7 @@ export default function CMSFieldsPage() {
                     <h1 className="text-3xl font-bold">Gestão de Campos</h1>
                     <p className="text-muted-foreground mt-1">Configure os campos dinâmicos por tipo de imóvel</p>
                 </div>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} disabled={!canCreate} title={!canCreate ? 'Sem permissão para criar campos' : undefined}>
                     <Plus className="w-4 h-4 mr-2" />
                     Novo Campo
                 </Button>
@@ -260,15 +287,15 @@ export default function CMSFieldsPage() {
 
                                 <div className="flex items-center justify-between p-3 border rounded-lg bg-indigo-50/50 border-indigo-100">
                                     <div className="space-y-0.5">
-                                        <Label className="font-bold text-indigo-900">Show in Summary Row</Label>
-                                        <p className="text-[10px] text-indigo-700">Display at the top of property page</p>
+                                        <Label className="font-bold text-indigo-900">Mostrar no resumo</Label>
+                                        <p className="text-[10px] text-indigo-700">Exibe no topo do detalhe do imóvel</p>
                                     </div>
                                     <Switch checked={showInSummary} onCheckedChange={setShowInSummary} />
                                 </div>
 
                                 {showInSummary && (
                                     <div className="space-y-2">
-                                        <Label>Summary Display Order</Label>
+                                        <Label>Ordem de Exibição</Label>
                                         <Input type="number" value={summaryOrder} onChange={e => setSummaryOrder(parseInt(e.target.value))} />
                                     </div>
                                 )}
@@ -345,10 +372,10 @@ export default function CMSFieldsPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(field)}>
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(field)} disabled={!canEdit} title={!canEdit ? 'Sem permissão' : 'Editar'}>
                                             <Settings2 className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteField(field.id)}>
+                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteField(field.id)} disabled={!canDelete} title={!canDelete ? 'Sem permissão' : 'Excluir'}>
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
@@ -361,3 +388,4 @@ export default function CMSFieldsPage() {
         </div>
     )
 }
+

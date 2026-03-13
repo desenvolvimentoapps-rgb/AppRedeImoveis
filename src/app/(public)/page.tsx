@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -47,16 +47,27 @@ export default function HomePage() {
 
     const fetchData = useCallback(async (options?: { silent?: boolean }) => {
         if (!options?.silent) setIsLoading(true)
-        const [propRes, typeRes, fieldRes] = await Promise.all([
-            supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
-            supabase.from('property_types').select('*').eq('is_active', true).order('name'),
-            supabase.from('cms_fields').select('*').eq('is_filterable', true)
-        ])
+        try {
+            const [propRes, typeRes, fieldRes] = await Promise.all([
+                supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
+                supabase.from('property_types').select('*').eq('is_active', true).order('name'),
+                supabase.from('cms_fields').select('*').eq('is_filterable', true)
+            ])
 
-        if (propRes.data) setProperties(propRes.data)
-        if (typeRes.data) setTypes(typeRes.data)
-        if (fieldRes.data) setFilterableFields(fieldRes.data)
-        if (!options?.silent) setIsLoading(false)
+            if (propRes.error) throw propRes.error
+            if (typeRes.error) throw typeRes.error
+            if (fieldRes.error) throw fieldRes.error
+
+            if (propRes.data) setProperties(propRes.data)
+            if (typeRes.data) setTypes(typeRes.data)
+            if (fieldRes.data) setFilterableFields(fieldRes.data)
+        } catch (error: any) {
+            if (!options?.silent) {
+                toast.error('Erro ao carregar imóveis', { description: error?.message })
+            }
+        } finally {
+            if (!options?.silent) setIsLoading(false)
+        }
     }, [supabase])
 
     useEffect(() => {
@@ -158,23 +169,45 @@ export default function HomePage() {
     const footerInfo = settings.find(s => s.key === 'footer_info')?.value || {}
     const homeContent = settings.find(s => s.key === 'home_content')?.value || {}
 
-    const heroBadge = homeContent.hero_badge || 'Exclusividade e Sofisticacao'
-    const heroTitleLine1 = homeContent.hero_title_line1 || 'Encontre a sua Proxima'
-    const heroTitleLine2 = homeContent.hero_title_line2 || 'Conquista Imobiliaria.'
-    const heroSubtitle = homeContent.hero_subtitle || 'Curadoria exclusiva dos melhores lancamentos e imoveis de alto padrao com atendimento premium.'
+    const heroBadge = homeContent.hero_badge || 'Exclusividade e Sofisticação'
+    const heroTitleLine1 = homeContent.hero_title_line1 || 'Encontre a sua Próxima'
+    const heroTitleLine2 = homeContent.hero_title_line2 || 'Conquista Imobiliária.'
+    const heroSubtitle = homeContent.hero_subtitle || 'Curadoria exclusiva dos melhores lançamentos e imóveis de alto padrão com atendimento premium.'
 
-    const aboutTitle = homeContent.about_title || 'Excelencia em Atendimento Imobiliario'
-    const aboutText = homeContent.about_text || footerInfo.about_text || 'Especialistas em lancamentos e imoveis de alto padrao. Encontre o lar dos seus sonhos com quem entende do mercado.'
-    const aboutSecondaryText = homeContent.about_secondary_text || 'Nossa missao e proporcionar um atendimento personalizado e exclusivo, garantindo que cada cliente encontre nao apenas um imovel, mas o seu proximo refugio.'
+    const aboutTitle = homeContent.about_title || 'Excelência em Atendimento Imobiliário'
+    const aboutText = homeContent.about_text || footerInfo.about_text || 'Especialistas em lançamentos e imóveis de alto padrão. Encontre o lar dos seus sonhos com quem entende do mercado.'
+    const aboutSecondaryText = homeContent.about_secondary_text || 'Nossa missão é proporcionar um atendimento personalizado e exclusivo, garantindo que cada cliente encontre não apenas um imóvel, mas o seu próximo refúgio.'
     const aboutImageUrl = homeContent.about_image_url || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=800&q=80'
+    const aboutStat1Value = homeContent.about_stat_1_value || '10+'
+    const aboutStat1Label = homeContent.about_stat_1_label || 'Anos de Mercado'
+    const aboutStat2Value = homeContent.about_stat_2_value || '500+'
+    const aboutStat2Label = homeContent.about_stat_2_label || 'Sonhos Realizados'
 
     const contactTitleLine1 = homeContent.contact_title_line1 || 'Vamos Encontrar seu'
     const contactTitleLine2 = homeContent.contact_title_line2 || 'Novo Lar?'
-    const contactSubtitle = homeContent.contact_subtitle || 'Deixe sua mensagem e um de nossos especialistas entrara em contato em breve.'
+    const contactSubtitle = homeContent.contact_subtitle || 'Deixe sua mensagem e um de nossos especialistas entrará em contato em breve.'
     const contactAddress = homeContent.contact_address || 'Curitiba - PR | Ponta Grossa - PR'
     const contactPhoneText = homeContent.contact_phone || footerInfo.phone || companyInfo.whatsapp || '(41) 99999-9999'
+    const contactAddressLabel = homeContent.contact_address_label || 'Endereço Principal'
+    const contactPhoneLabel = homeContent.contact_phone_label || 'Fale Conosco'
+    const contactSectionBg = homeContent.contact_section_bg || ''
+    const contactSectionAccent = homeContent.contact_section_accent || ''
 
     const heroBg = appearance.hero_bg_url || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1920&q=80'
+    const selectedTypeLabel = selectedType === 'all'
+        ? 'Todos os tipos'
+        : (types.find(t => t.id === selectedType)?.name || 'Tipo de Imóvel')
+    const getPriceInfo = (item: Property) => {
+        const pricing = (item.features as any)?.pricing
+        const isExact = !pricing || pricing.mode === 'exact'
+        const label = isExact
+            ? 'Valor de venda'
+            : (pricing.label || (pricing.mode === 'special' ? 'Investimento Especial' : 'Preços a partir de'))
+        const valueText = item.value
+            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.value)
+            : 'Consulte'
+        return { label, valueText, isExact }
+    }
 
     return (
         <div className="flex flex-col gap-16 pb-20 bg-slate-50/30">
@@ -218,7 +251,7 @@ export default function HomePage() {
                         <div className="w-full md:w-56 bg-slate-50 rounded-xl border border-transparent flex items-center">
                             <Select value={selectedType} onValueChange={(v) => { setSelectedType(v ?? 'all'); setPage(1) }}>
                                 <SelectTrigger className="border-none bg-transparent shadow-none h-14 text-slate-900 font-semibold px-6">
-                                    <SelectValue placeholder="Tipo de Imóvel" />
+                                    <span className="flex-1 text-left">{selectedTypeLabel}</span>
                                 </SelectTrigger>
                                 <SelectContent className="rounded-xl">
                                     <SelectItem value="all">Todos os tipos</SelectItem>
@@ -348,7 +381,9 @@ export default function HomePage() {
                 ) : (
                     <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-                            {currentProperties.map(p => (
+                            {currentProperties.map(p => {
+                                const priceInfo = getPriceInfo(p)
+                                return (
                                 <Link key={p.id} href={`/imoveis/${p.slug}`} className="group">
                                     <Card className="h-full overflow-hidden border-none shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 rounded-3xl bg-white border border-slate-100 flex flex-col">
                                         <div className="relative h-72 overflow-hidden">
@@ -398,9 +433,9 @@ export default function HomePage() {
 
                                             <div className="mt-8 pt-6 border-t flex items-center justify-between">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">Valor de venda</span>
+                                                    <span className="text-[10px] text-slate-400 uppercase font-black tracking-tighter">{priceInfo.label}</span>
                                                     <span className="text-2xl font-black text-primary tracking-tighter leading-none">
-                                                        {p.value ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.value) : 'Consulte'}
+                                                        {priceInfo.valueText}
                                                     </span>
                                                 </div>
                                                 <div className="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all duration-300">
@@ -410,7 +445,8 @@ export default function HomePage() {
                                         </CardContent>
                                     </Card>
                                 </Link>
-                            ))}
+                                )
+                            })}
                         </div>
 
                         {/* Pagination UI */}
@@ -464,7 +500,7 @@ export default function HomePage() {
         <div className="space-y-8">
             <div className="flex items-center gap-2 mb-2">
                 <div className="h-1 w-12 bg-primary rounded-full" />
-                <span className="text-primary font-black text-xs uppercase tracking-[0.3em]">Nossa Historia</span>
+                <span className="text-primary font-black text-xs uppercase tracking-[0.3em]">Nossa História</span>
             </div>
             <h2 className="text-5xl font-black text-slate-900 leading-tight">{aboutTitle}</h2>
             <div className="space-y-4 text-slate-600 text-lg leading-relaxed">
@@ -473,12 +509,12 @@ export default function HomePage() {
             </div>
             <div className="grid grid-cols-2 gap-8 pt-4">
                 <div>
-                    <h4 className="text-3xl font-black text-primary">10+</h4>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Anos de Mercado</p>
+                    <h4 className="text-3xl font-black text-primary">{aboutStat1Value}</h4>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{aboutStat1Label}</p>
                 </div>
                 <div>
-                    <h4 className="text-3xl font-black text-primary">500+</h4>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Sonhos Realizados</p>
+                    <h4 className="text-3xl font-black text-primary">{aboutStat2Value}</h4>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{aboutStat2Label}</p>
                 </div>
             </div>
         </div>
@@ -496,8 +532,8 @@ export default function HomePage() {
 </section>
 
             {/* Contact Section */}
-<section id="contato" className="bg-slate-900 py-24 relative overflow-hidden">
-    <div className="absolute top-0 right-0 w-1/3 h-full bg-primary/5 -skew-x-12 translate-x-1/2" />
+<section id="contato" className="bg-slate-900 py-24 relative overflow-hidden" style={contactSectionBg ? { backgroundColor: contactSectionBg } : undefined}>
+    <div className="absolute top-0 right-0 w-1/3 h-full bg-primary/5 -skew-x-12 translate-x-1/2" style={contactSectionAccent ? { backgroundColor: contactSectionAccent } : undefined} />
     <div className="container max-w-7xl mx-auto px-4 relative z-10">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
             <div className="space-y-8">
@@ -515,7 +551,7 @@ export default function HomePage() {
                             <MapPin className="w-6 h-6" />
                         </div>
                         <div>
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Endereco Principal</p>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{contactAddressLabel}</p>
                             <p className="text-white font-medium">{contactAddress}</p>
                         </div>
                     </div>
@@ -524,7 +560,7 @@ export default function HomePage() {
                             <ArrowRight className="w-6 h-6" />
                         </div>
                         <div>
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Fale Conosco</p>
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{contactPhoneLabel}</p>
                             <p className="text-white font-medium">{contactPhoneText}</p>
                         </div>
                     </div>
@@ -584,7 +620,7 @@ export default function HomePage() {
                         disabled={isSendingContact}
                         type="submit"
                     >
-                        {isSendingContact ? 'Enviando...' : 'Enviar Solicitacao'}
+                        {isSendingContact ? 'Enviando...' : 'Enviar Solicitação'}
                     </Button>
                 </form>
             </Card>
@@ -596,3 +632,6 @@ export default function HomePage() {
         </div>
     )
 }
+
+
+

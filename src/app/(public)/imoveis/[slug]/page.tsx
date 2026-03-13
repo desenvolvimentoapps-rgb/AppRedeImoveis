@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import {
     MapPin, Bed, Bath, Maximize, CheckCircle2, MessageSquare,
     Phone, Mail, ChevronLeft, Calendar, Building, Ruler,
@@ -45,60 +45,127 @@ export default function PropertyDetailsPage() {
     const [isSendingLead, setIsSendingLead] = useState(false)
     const supabase = createClient()
 
+    const resolveCounterField = (item: Record<string, any>, candidates: string[]) => {
+        for (const field of candidates) {
+            if (Object.prototype.hasOwnProperty.call(item, field)) return field
+        }
+        return undefined
+    }
+
+    const incrementPropertyCounter = async (propertyId: string, field: string, currentValue: number) => {
+        if (!field) return
+        const nextValue = Number(currentValue || 0) + 1
+        try {
+            const { error } = await supabase
+                .from('properties')
+                .update({ [field]: nextValue })
+                .eq('id', propertyId)
+            if (!error) {
+                setProperty(prev => prev ? ({ ...prev, [field]: nextValue } as any) : prev)
+            }
+        } catch {
+            // Ignore tracking errors
+        }
+    }
+
     // Gallery state
     const [activeImage, setActiveImage] = useState(0)
     const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+    const [thumbnailStart, setThumbnailStart] = useState(0)
+    const THUMBNAILS_PER_PAGE = 4
 
     // Form lead
     const [leadName, setLeadName] = useState('')
     const [leadEmail, setLeadEmail] = useState('')
     const [leadPhone, setLeadPhone] = useState('')
-    const [leadMsg, setLeadMsg] = useState('Olá, gostaria de mais informações sobre este imóvel.')
+    const [leadMsg, setLeadMsg] = useState('')
+    //const [leadMsg, setLeadMsg] = useState('Olá, gostaria de mais informações sobre este imóvel {property_url} | Código: {property_code}.')
 
     const [similarProperties, setSimilarProperties] = useState<Property[]>([])
+    const [isTourOpen, setIsTourOpen] = useState(false)
+
+    // Template da mensagem
+    const messageTemplate = 'Ol?, gostaria de mais informa??es sobre este im?vel'
+
+    // Atualiza mensagem automaticamente quando o im?vel carregar
+    useEffect(() => {
+        if (!property) return
+
+        const parsedMessage = messageTemplate
+            .replace(/{property_url}/g, typeof window !== 'undefined' ? window.location.href : '')
+            .replace(/{property_code}/g, property.code || '')
+            .replace(/{internal_code}/g, property.internal_code || '')
+
+        setLeadMsg(parsedMessage)
+    }, [property, messageTemplate])
+
 
     useEffect(() => {
+        let isActive = true
         const fetchData = async () => {
-            if (!slug) return
-            setIsLoading(true)
-
-            // Fetch property, fields, and settings
-            const [propRes, fieldRes, settRes] = await Promise.all([
-                supabase.from('properties').select('*, type:property_types(name)').eq('slug', slug).single(),
-                supabase.from('cms_fields').select('*'),
-                supabase.from('cms_settings').select('*')
-            ])
-
-            if (propRes.data) {
-                const propertyData = propRes.data
-                setProperty(propertyData)
-
-                // Track View (Increment view_count)
-                await supabase.rpc('increment_property_view', { property_id: propertyData.id })
-
-                // Fetch Similar Properties (Same type, excluding current)
-                const { data: similar } = await supabase
-                    .from('properties')
-                    .select('*, type:property_types(name)')
-                    .eq('type_id', propertyData.type_id)
-                    .neq('id', propertyData.id)
-                    .eq('is_active', true)
-                    .limit(4)
-
-                setSimilarProperties(similar || [])
+            if (!slug) {
+                if (isActive) setIsLoading(false)
+                return
             }
+            setIsLoading(true)
+            try {
+                // Fetch property, fields, and settings
+                const [propRes, fieldRes, settRes] = await Promise.all([
+                    supabase.from('properties').select('*, type:property_types(name)').eq('slug', slug).single(),
+                    supabase.from('cms_fields').select('*'),
+                    supabase.from('cms_settings').select('*')
+                ])
 
-            if (fieldRes.data) setCmsFields(fieldRes.data)
-            if (settRes.data) setSettings(settRes.data)
+                if (propRes.error) throw propRes.error
+                if (fieldRes.error) throw fieldRes.error
+                if (settRes.error) throw settRes.error
 
-            setIsLoading(false)
+                if (propRes.data && isActive) {
+                    const propertyData = propRes.data
+                    setProperty(propertyData)
+
+                    // Track View (Increment view_count)
+                    const viewField = resolveCounterField(propertyData as any, ['view_count'])
+                    if (viewField) {
+                        await incrementPropertyCounter(propertyData.id, viewField, (propertyData as any)?.[viewField] || 0)
+                    }
+
+                    // Fetch Similar Properties (Same type, excluding current)
+                    const { data: similar } = await supabase
+                        .from('properties')
+                        .select('*, type:property_types(name)')
+                        .eq('type_id', propertyData.type_id)
+                        .neq('id', propertyData.id)
+                        .eq('is_active', true)
+                        .limit(4)
+
+                    if (isActive) setSimilarProperties(similar || [])
+                }
+
+                if (fieldRes.data && isActive) setCmsFields(fieldRes.data)
+                if (settRes.data && isActive) setSettings(settRes.data)
+            } catch (error: any) {
+                if (isActive) {
+                    toast.error('Erro ao carregar imóvel', { description: error?.message })
+                }
+            } finally {
+                if (isActive) setIsLoading(false)
+            }
         }
         fetchData()
+
+        return () => {
+            isActive = false
+        }
     }, [slug, supabase])
 
     const companyInfo = useMemo(() => {
         const info = settings.find(s => s.key === 'company_info')?.value
         return info || { whatsapp: '5541999999999' }
+    }, [settings])
+
+    const propertyDetails = useMemo(() => {
+        return settings.find(s => s.key === 'property_details')?.value || {}
     }, [settings])
 
     const handleSendLead = async (e: React.FormEvent) => {
@@ -107,16 +174,28 @@ export default function PropertyDetailsPage() {
         setIsSendingLead(true)
 
         try {
-            const { error } = await supabase.from('leads').insert([{
-                property_id: property.id,
-                name: leadName,
-                email: leadEmail,
-                phone: leadPhone,
-                message: leadMsg
-            }])
+            const response = await fetch('/api/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    propertyId: property.id,
+                    propertyTitle: property.title,
+                    propertyCode: property.code,
+                    propertyInternalCode: property.internal_code,
+                    propertyUrl: typeof window !== 'undefined' ? window.location.href : '',
+                    name: leadName,
+                    email: leadEmail,
+                    phone: leadPhone,
+                    message: leadMsg,
+                }),
+            })
 
-            if (error) throw error
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data?.error || 'Falha ao enviar')
+            }
 
+            await trackPropertyClick('email')
             toast.success('Contato enviado com sucesso! Retornaremos em breve.')
             setLeadName('')
             setLeadEmail('')
@@ -128,11 +207,30 @@ export default function PropertyDetailsPage() {
         }
     }
 
+    const trackPropertyClick = async (channel: 'whatsapp_br' | 'whatsapp_intl' | 'email') => {
+        if (!property) return
+
+        const clickField = resolveCounterField(property as any, ['click_count'])
+        if (clickField) {
+            await incrementPropertyCounter(property.id, clickField, (property as any)?.[clickField] || 0)
+        }
+
+        const channelFieldMap: Record<string, string[]> = {
+            whatsapp_br: ['whastbr_count', 'WhastBR_count', 'whatsapp_clicks_br'],
+            whatsapp_intl: ['whastusa_count', 'WhastUSA_count', 'whatsapp_clicks_intl'],
+            email: ['email_count', 'email_clicks'],
+        }
+
+        const field = resolveCounterField(property as any, channelFieldMap[channel] || [])
+        if (!field) return
+        await incrementPropertyCounter(property.id, field, (property as any)?.[field] || 0)
+    }
+
     const handleWhatsApp = async (isInternational: boolean = false) => {
         if (!property) return
 
-        // Track Click (Increment click_count)
-        await supabase.rpc('increment_property_click', { property_id: property.id })
+        // Track Click (Increment click_count + channel)
+        await trackPropertyClick(isInternational ? 'whatsapp_intl' : 'whatsapp_br')
 
         const whatsappConfig = settings.find(s => s.key === 'whatsapp_config')?.value || {}
 
@@ -170,6 +268,24 @@ export default function PropertyDetailsPage() {
         setActiveImage((prev) => (prev - 1 + property.images.length) % property.images.length)
     }
 
+    const images = property?.images?.length
+        ? property.images
+        : ['https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=100']
+
+    const visibleThumbnails = images.slice(thumbnailStart, thumbnailStart + THUMBNAILS_PER_PAGE)
+    const canPrevThumbs = thumbnailStart > 0
+    const canNextThumbs = thumbnailStart + THUMBNAILS_PER_PAGE < images.length
+
+    useEffect(() => {
+        setThumbnailStart((prev) => {
+            if (activeImage < prev) return activeImage
+            if (activeImage >= prev + THUMBNAILS_PER_PAGE) {
+                return Math.max(0, activeImage - THUMBNAILS_PER_PAGE + 1)
+            }
+            return prev
+        })
+    }, [activeImage, images.length, THUMBNAILS_PER_PAGE])
+
     if (isLoading) return (
         <div className="flex flex-col items-center justify-center min-h-screen gap-4">
             <Loader2 className="w-10 h-10 animate-spin text-primary" />
@@ -183,10 +299,42 @@ export default function PropertyDetailsPage() {
             <Link href="/"><Button>Voltar para o início</Button></Link>
         </div>
     )
+    const getPriceInfo = (item: Property) => {
+        const pricing = (item.features as any)?.pricing
+        const isExact = !pricing || pricing.mode === 'exact'
+        const label = isExact
+            ? 'Valor de venda'
+            : (pricing.label || (pricing.mode === 'special' ? 'Investimento Especial' : 'Preços a partir de'))
+        const valueText = item.value
+            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.value)
+            : 'Consulte'
+        return { label, valueText, isExact }
+    }
 
-    const images = property.images && property.images.length > 0
-        ? property.images
-        : ['https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=100']
+    const priceInfo = getPriceInfo(property)
+
+    const leadTitle = propertyDetails.lead_title || 'Agende uma Visita'
+    const leadSubtitle = propertyDetails.lead_subtitle || 'Deixe seus dados e nosso especialista entrará em contato em menos de 15 minutos.'
+    const leadNoteTemplate = propertyDetails.lead_note || 'Link: {property_url} | Código: {property_code} | Interno: {internal_code}'
+    const leadNote = leadNoteTemplate
+        .replace(/{property_url}/g, typeof window !== 'undefined' ? window.location.href : '')
+        .replace(/{property_code}/g, property.code || '')
+        .replace(/{internal_code}/g, property.internal_code || '')
+        
+
+    const leadFormBg = propertyDetails.lead_form_bg || ''
+    const leadFormText = propertyDetails.lead_form_text || ''
+    const leadFormButtonBg = propertyDetails.lead_form_button_bg || ''
+    const leadFormButtonText = propertyDetails.lead_form_button_text || ''
+
+    const securityTitle = propertyDetails.security_title || 'Compra Segura'
+    const securitySubtitle = propertyDetails.security_subtitle || 'Certificação Olivia Prado'
+    const securityDescription = propertyDetails.security_description || 'Garantimos transparência total e assessoria jurídica completa para sua tranquilidade e segurança financeira.'
+    const securityBg = propertyDetails.security_bg || ''
+    const securityText = propertyDetails.security_text || ''
+    const securityAccent = propertyDetails.security_accent || ''
+    const tourUrl = property.tour_360_url || ''
+    const hasTour = !!tourUrl
 
     return (
         <div className="bg-slate-50/50 min-h-screen pb-24">
@@ -215,6 +363,8 @@ export default function PropertyDetailsPage() {
                         className="w-full h-full object-cover transition-opacity duration-500 cursor-zoom-in"
                         alt={property.title}
                         onClick={() => setIsLightboxOpen(true)}
+                        loading="eager"
+                        decoding="async"
                     />
 
                     {/* Navigation Arrows */}
@@ -249,23 +399,64 @@ export default function PropertyDetailsPage() {
                     </div>
                 </div>
 
-                <div className="lg:col-span-4 flex flex-col gap-4 overflow-y-auto max-h-[600px] pr-2 custom-scrollbar">
-                    {images.map((img, i) => (
-                        <div
-                            key={i}
-                            className={`relative aspect-video rounded-xl overflow-hidden cursor-pointer border-2 transition-all duration-300 ${activeImage === i ? 'border-primary ring-2 ring-primary/20' : 'border-transparent opacity-70 hover:opacity-100'}`}
-                            onClick={() => setActiveImage(i)}
+                <div className="lg:col-span-4 flex flex-col gap-4">
+                    <div className="flex items-center justify-between gap-2">
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9 rounded-full"
+                            onClick={() => setThumbnailStart((prev) => Math.max(0, prev - THUMBNAILS_PER_PAGE))}
+                            disabled={!canPrevThumbs}
+                            title="Anteriores"
                         >
-                            <img src={img} className="w-full h-full object-cover" alt="" />
-                            {activeImage === i && <div className="absolute inset-0 bg-primary/10" />}
-                        </div>
-                    ))}
+                            <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Fotos</span>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9 rounded-full"
+                            onClick={() => setThumbnailStart((prev) => Math.min(prev + THUMBNAILS_PER_PAGE, Math.max(0, images.length - THUMBNAILS_PER_PAGE)))}
+                            disabled={!canNextThumbs}
+                            title="Próximas"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-3 lg:h-[600px] overflow-hidden">
+                        {visibleThumbnails.map((img, index) => {
+                            const actualIndex = thumbnailStart + index
+                            const isActive = actualIndex === activeImage
+
+                            return (
+                                <button
+                                    key={`${img}-${actualIndex}`}
+                                    type="button"
+                                    className={`relative aspect-video rounded-xl overflow-hidden border-2 transition-all duration-300 ${isActive ? 'border-primary ring-2 ring-primary/20' : 'border-transparent opacity-80 hover:opacity-100'}`}
+                                    onClick={() => {
+                                        setActiveImage(actualIndex)
+                                        setIsLightboxOpen(true)
+                                    }}
+                                    title="Abrir imagem"
+                                >
+                                    <img
+                                        src={img}
+                                        className="w-full h-full object-cover"
+                                        alt=""
+                                        loading={isActive ? 'eager' : 'lazy'}
+                                    />
+                                    {isActive && <div className="absolute inset-0 bg-primary/10" />}
+                                </button>
+                            )
+                        })}
+                    </div>
                 </div>
             </section>
 
             {/* Lightbox Modal */}
             <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
-                <DialogContent className="max-w-[95vw] h-[90vh] p-0 border-none bg-black/95 transition-all">
+                <DialogContent showCloseButton={false} className="max-w-[95vw] h-[90vh] p-0 border-none bg-black/95 transition-all">
                     <div className="relative w-full h-full flex items-center justify-center">
                         <img src={images[activeImage]} className="max-w-full max-h-full object-contain" alt="" />
                         <button
@@ -277,6 +468,29 @@ export default function PropertyDetailsPage() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Tour 360 Modal */}
+            {hasTour && (
+                <Dialog open={isTourOpen} onOpenChange={setIsTourOpen}>
+                    <DialogContent showCloseButton={false} className="max-w-[90vw] w-[90vw] h-[90vh] p-0 border-none bg-black/90">
+                        <div className="relative w-full h-full">
+                            <iframe
+                                src={tourUrl}
+                                title="Tour 360"
+                                className="w-full h-full"
+                                allowFullScreen
+                                loading="lazy"
+                            />
+                            <button
+                                onClick={() => setIsTourOpen(false)}
+                                className="absolute top-4 right-4 bg-white/90 hover:bg-white text-slate-900 text-xs font-bold uppercase tracking-widest px-3 py-2 rounded-full shadow"
+                            >
+                                Fechar
+                            </button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
 
             <div className="container max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-10">
                 {/* Main Content Area */}
@@ -293,11 +507,11 @@ export default function PropertyDetailsPage() {
                                     <p className="text-slate-500 font-medium">{property.address_street}, {property.address_neighborhood}</p>
                                 )}
                             </div>
-                            <div className="flex flex-col items-end">
-                                <span className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Investimento Especial</span>
+                            <div className="flex flex-col items-end gap-1">
                                 <p className="text-4xl font-black text-primary tracking-tighter">
-                                    {property.value ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(property.value) : 'Consulte'}
+                                    {priceInfo.valueText}
                                 </p>
+                                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{priceInfo.label}</span>
                             </div>
                         </div>
 
@@ -430,6 +644,34 @@ export default function PropertyDetailsPage() {
                         })}
                     </div>
 
+                    {hasTour && (
+                        <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white">
+                            <CardHeader className="bg-slate-50/50 pt-8 px-8">
+                                <CardTitle className="text-xl font-black flex items-center gap-2">
+                                    <div className="h-6 w-1.5 bg-primary rounded-full" />
+                                    Tour 360°
+                                </CardTitle>
+                                <CardDescription>Explore cada detalhe com visão panorâmica.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-8 space-y-4">
+                                <div className="aspect-video w-full overflow-hidden rounded-2xl border bg-slate-100">
+                                    <iframe
+                                        src={tourUrl}
+                                        title="Tour 360"
+                                        className="w-full h-full"
+                                        allowFullScreen
+                                        loading="lazy"
+                                    />
+                                </div>
+                                <div className="flex justify-end">
+                                    <Button variant="outline" className="rounded-full" onClick={() => setIsTourOpen(true)}>
+                                        Expandir
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
                     {/* Map Section */}
                     <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white">
                         <CardHeader className="bg-slate-50/50 pt-8 px-8">
@@ -461,10 +703,22 @@ export default function PropertyDetailsPage() {
                 {/* Sidebar - Conversion Area */}
                 <div className="lg:col-span-4">
                     <div className="sticky top-32 space-y-6">
-                        <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-primary text-white">
+                        <Card
+                            className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-primary text-white"
+                            style={leadFormBg || leadFormText ? { backgroundColor: leadFormBg || undefined, color: leadFormText || undefined } : undefined}
+                        >
                             <CardHeader className="p-10 pb-6 text-center">
-                                <h3 className="text-3xl font-black mb-2 tracking-tighter">Agende uma Visita</h3>
-                                <p className="text-white/80 text-sm font-medium leading-relaxed">Deixe seus dados e nosso especialista entrará em contato em menos de 15 minutos.</p>
+                                <h3 className="text-3xl font-black mb-2 tracking-tighter" style={leadFormText ? { color: leadFormText } : undefined}>
+                                    {leadTitle}
+                                </h3>
+                                <p className="text-white/80 text-sm font-medium leading-relaxed" style={leadFormText ? { color: leadFormText } : undefined}>
+                                    {leadSubtitle}
+                                </p>
+                                {leadNote && (
+                                    <p className="text-[11px] text-white/70 mt-3" style={leadFormText ? { color: leadFormText } : undefined}>
+                                        {leadNote}
+                                    </p>
+                                )}
                             </CardHeader>
                             <CardContent className="p-10 pt-0">
                                 <form onSubmit={handleSendLead} className="space-y-5">
@@ -503,7 +757,13 @@ export default function PropertyDetailsPage() {
                                         rows={3}
                                         className="bg-white/10 border-white/20 text-white placeholder:text-white/60 rounded-2xl focus:bg-white focus:text-slate-900 transition-all ring-offset-primary"
                                     />
-                                    <Button size="lg" className="w-full h-16 text-xl font-black bg-white text-primary hover:bg-slate-50 shadow-2xl rounded-2xl transition-all active:scale-95" disabled={isSendingLead}>
+                                    <Button
+                                        size="lg"
+                                        type="submit"
+                                        className="w-full h-16 text-xl font-black bg-white text-primary hover:bg-slate-50 shadow-2xl rounded-2xl transition-all active:scale-95"
+                                        disabled={isSendingLead}
+                                        style={leadFormButtonBg || leadFormButtonText ? { backgroundColor: leadFormButtonBg || undefined, color: leadFormButtonText || undefined } : undefined}
+                                    >
                                         {isSendingLead ? 'Enviando...' : 'Falar com Consultor'}
                                     </Button>
                                 </form>
@@ -543,24 +803,47 @@ export default function PropertyDetailsPage() {
                                                 <span className="font-bold">Ligar agora</span>
                                             </Button>
                                         </a>
+                                        {companyInfo.email && (
+                                            <a
+                                                href={`mailto:${companyInfo.email}?subject=${encodeURIComponent(`Interesse no imovel ${property.code}`)}`}
+                                                className="block"
+                                                onClick={() => trackPropertyClick('email')}
+                                            >
+                                                <Button variant="outline" className="w-full h-14 rounded-2xl border-white/20 bg-white/5 hover:bg-white hover:text-primary transition-all group">
+                                                    <Mail className="w-5 h-5 mr-3 text-white/60 group-hover:text-primary" />
+                                                    <span className="font-bold">Enviar e-mail</span>
+                                                </Button>
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                             </CardContent>
                         </Card>
 
                         {/* Additional Info / Security */}
-                        <div className="p-8 bg-slate-900 text-white rounded-[2.5rem] shadow-xl space-y-4">
+                        <div
+                            className="p-8 bg-slate-900 text-white rounded-[2.5rem] shadow-xl space-y-4"
+                            style={securityBg || securityText ? { backgroundColor: securityBg || undefined, color: securityText || undefined } : undefined}
+                        >
                             <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-full bg-emerald-500/20 text-emerald-400">
+                                <div
+                                    className="p-2 rounded-full bg-emerald-500/20 text-emerald-400"
+                                    style={securityAccent ? { backgroundColor: securityAccent, color: securityText || undefined } : undefined}
+                                >
                                     <ShieldCheck className="w-5 h-5" />
                                 </div>
                                 <div className="flex flex-col">
-                                    <span className="text-sm font-bold">Compra Segura</span>
-                                    <span className="text-[10px] text-slate-400 uppercase font-black">Certificação Olivia Prado</span>
+                                    <span className="text-sm font-bold">{securityTitle}</span>
+                                    <span className="text-[10px] text-slate-400 uppercase font-black" style={securityText ? { color: securityText } : undefined}>
+                                        {securitySubtitle}
+                                    </span>
                                 </div>
                             </div>
-                            <p className="text-xs text-slate-400 leading-relaxed italic">"Garantimos transparência total e assessoria jurídica completa para sua tranquilidade e segurança financeira."</p>
+                            <p className="text-xs text-slate-400 leading-relaxed italic" style={securityText ? { color: securityText } : undefined}>
+                                {securityDescription}
+                            </p>
                         </div>
+                                
                     </div>
                 </div>
             </div>
@@ -572,7 +855,7 @@ export default function PropertyDetailsPage() {
                             <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Imóveis Similares</h2>
                             <p className="text-muted-foreground font-medium">Outras opções que podem lhe interessar neste perfil</p>
                         </div>
-                        <Link href="/imoveis">
+                        <Link href="/#imoveis">
                             <Button variant="ghost" className="font-bold text-primary hover:text-primary/80 hover:bg-primary/5">
                                 Ver todos <ChevronRight className="w-4 h-4 ml-1" />
                             </Button>
@@ -580,7 +863,9 @@ export default function PropertyDetailsPage() {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {similarProperties.map((p: any) => (
+                        {similarProperties.map((p: any) => {
+                            const priceInfo = getPriceInfo(p as Property)
+                            return (
                             <Link key={p.id} href={`/imoveis/${p.slug}`} className="group">
                                 <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white hover:shadow-xl transition-all duration-500 hover:-translate-y-1">
                                     <div className="relative aspect-video overflow-hidden">
@@ -602,7 +887,7 @@ export default function PropertyDetailsPage() {
                                         </p>
                                         <div className="flex items-center justify-between mt-4">
                                             <span className="text-sm font-black text-primary">
-                                                {p.value ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(p.value) : 'Consulte'}
+                                                {priceInfo.valueText}
                                             </span>
                                             <div className="flex gap-3 text-[10px] font-bold text-slate-400">
                                                 <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" /> {p.specs?.quartos || 0}</span>
@@ -612,10 +897,17 @@ export default function PropertyDetailsPage() {
                                     </CardContent>
                                 </Card>
                             </Link>
-                        ))}
+                        )
+                        })}
                     </div>
                 </section>
             )}
         </div>
     )
 }
+
+
+
+
+
+

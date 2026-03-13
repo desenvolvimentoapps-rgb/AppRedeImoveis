@@ -1,8 +1,10 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useParams } from 'next/navigation'
+import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission } from '@/lib/permissions'
 import { Property } from '@/types/database'
 import { PropertyForm } from '@/modules/property/components/PropertyForm'
 import { toast } from 'sonner'
@@ -15,6 +17,8 @@ export default function EditPropertyPage() {
     const [property, setProperty] = useState<Property | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const supabase = createClient()
+    const { profile, isLoading: authLoading } = useAuthStore()
+    const canEdit = hasPermission(profile, 'properties', 'edit')
 
     useEffect(() => {
         const fetchProperty = async () => {
@@ -35,6 +39,24 @@ export default function EditPropertyPage() {
 
         if (id) fetchProperty()
     }, [id, supabase])
+
+    if (authLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+                <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                <p className="text-muted-foreground animate-pulse">Carregando permissões...</p>
+            </div>
+        )
+    }
+
+    if (!canEdit) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+                <h1 className="text-2xl font-bold">Acesso restrito</h1>
+                <p className="text-muted-foreground">Você não tem permissão para editar imóveis.</p>
+            </div>
+        )
+    }
 
     if (isLoading) {
         return (

@@ -1,10 +1,10 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useCMSStore } from '@/hooks/useCMS'
-import { Property, PropertyType } from '@/types/database'
+import { Property, PropertyType, PropertyStatus } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,8 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DynamicFieldRenderer } from '@/modules/cms/components/DynamicFieldRenderer'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { DEFAULT_PROPERTY_STATUSES, normalizePropertyStatus, resolveStatusLabel } from '@/lib/property-status'
 import { toast } from 'sonner'
-import { Save, MapPin, Info, Home, List, ShieldCheck, Image as ImageIcon, Loader2, Search, MessageSquare } from 'lucide-react'
+import { Save, MapPin, Info, Home, List, ShieldCheck, Image as ImageIcon, Loader2, Search, MessageSquare, HelpCircle } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import axios from 'axios'
 
@@ -25,13 +27,83 @@ interface PropertyFormProps {
     isEditing?: boolean
 }
 
+const formatCodePrefix = (raw: string) => {
+    const trimmed = (raw || '').toString().trim()
+    if (!trimmed) return ''
+    return trimmed.endsWith('-') ? trimmed : `${trimmed}-`
+}
+
+const slugify = (value: string) =>
+    value
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+
+const sanitizeSeoInput = (value: string) =>
+    value
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+
+const stripCodeSuffix = (value: string) =>
+    value.replace(/-(?:oli|imo)-\d{4,}$/i, '')
+
+const buildSeoTitle = (params: {
+    title?: string | null
+    typeName?: string | null
+    neighborhood?: string | null
+    city?: string | null
+    uf?: string | null
+}) => {
+    const parts = [
+        (params.title || '').trim(),
+        (params.typeName || '').trim(),
+        (params.neighborhood || '').trim(),
+        (params.city || '').trim(),
+        (params.uf || '').trim(),
+    ].filter(Boolean)
+
+    return sanitizeSeoInput(parts.join(' '))
+}
+
+const sanitizeSlugBase = (value: string) => {
+    const base = slugify(value || '')
+    return base.replace(/-+$/g, '')
+}
+
+const sanitizeCodeForSlug = (value: string) => {
+    return (value || '')
+        .toString()
+        .trim()
+        .replace(/[^a-zA-Z0-9-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
+const extractCodeNumber = (code: string | null | undefined) => {
+    if (!code) return 0
+    const match = code.toString().match(/(\d+)\s*$/)
+    return match ? Number.parseInt(match[1], 10) : 0
+}
+
 export function PropertyForm({ initialData, isEditing = false }: PropertyFormProps) {
     const { fields } = useCMSStore()
     const [types, setTypes] = useState<PropertyType[]>([])
+    const [statuses, setStatuses] = useState<PropertyStatus[]>([])
+    const [companyInfo, setCompanyInfo] = useState<any>({})
     const [isLoading, setIsLoading] = useState(false)
     const [isSearchingCep, setIsSearchingCep] = useState(false)
     const router = useRouter()
     const supabase = createClient()
+    const [customPrefix, setCustomPrefix] = useState('')
+    const [isSeoTitleDirty, setIsSeoTitleDirty] = useState(!!initialData?.seo_title)
 
     const [formData, setFormData] = useState<Partial<Property>>(
         initialData || {
@@ -65,6 +137,7 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
             features: {},
             images: [],
             main_image_index: 0,
+            tour_360_url: '',
         }
     )
 
@@ -75,13 +148,78 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
         )
     }, [fields, formData.type_id])
 
+    const statusOptions = statuses.length ? statuses : DEFAULT_PROPERTY_STATUSES
+    const activeStatusOptions = statusOptions.filter(s => s.is_active)
+    const selectedStatusLabel = resolveStatusLabel(formData.status, statusOptions) || 'Disponível'
+    const selectedTypeLabel = types.find(t => t.id === formData.type_id)?.name || 'Selecione o tipo'
+    const useDynamicPrefix = !!companyInfo?.use_dynamic_prefix
+    const basePrefix = formatCodePrefix(companyInfo?.code_prefix || 'OLI-')
+
     useEffect(() => {
-        const fetchTypes = async () => {
-            const { data } = await supabase.from('property_types').select('*').eq('is_active', true).order('name')
-            if (data) setTypes(data)
+        const fetchLookups = async () => {
+            const [typesRes, statusRes, settingsRes] = await Promise.all([
+                supabase.from('property_types').select('*').eq('is_active', true).order('name'),
+                supabase.from('property_statuses').select('*').order('label', { ascending: true }),
+                supabase.from('cms_settings').select('value').eq('key', 'company_info').maybeSingle(),
+            ])
+
+            if (typesRes.data) setTypes(typesRes.data)
+
+            if (statusRes.data && statusRes.data.length > 0) {
+                const normalized = statusRes.data.map(normalizePropertyStatus)
+                setStatuses(normalized.length > 0 ? normalized : DEFAULT_PROPERTY_STATUSES)
+            } else {
+                setStatuses(DEFAULT_PROPERTY_STATUSES)
+            }
+
+            if (settingsRes.data?.value) setCompanyInfo(settingsRes.data.value)
         }
-        fetchTypes()
+
+        fetchLookups()
     }, [supabase])
+
+useEffect(() => {
+    if (isSeoTitleDirty) return
+
+    const typeName = types.find(t => t.id === formData.type_id)?.name || ''
+
+    // Pegar o valor do campo dinâmicos
+    const quartos = formData.specs?.quartos
+  ? `${formData.specs.quartos} ${formData.specs.quartos === 1 ? 'quarto' : 'quartos'}`
+  : ''
+    const banheiros = formData.specs?.banheiros
+  ? `${formData.specs.banheiros} ${formData.specs.banheiros === 1 ? 'banheiro' : 'banheiros'}`
+  : ''
+    const area_construida = formData.specs?.area_construida ? `${formData.specs.area_construida} metros de area construida` : ''
+    const piscina = formData.specs?.piscina === true ? 'piscina' : ''
+    
+
+    const nextSeo = buildSeoTitle({
+        title: formData.title,
+        typeName,
+        neighborhood: formData.address_neighborhood,
+        city: formData.address_city,
+        uf: formData.address_uf,
+    })
+
+    // Concatenar o campo dinâmico no SEO title
+    const seoWithDynamic = [nextSeo, quartos, banheiros, area_construida,piscina].filter(Boolean).join(' - ')
+
+    setFormData(prev =>
+        prev.seo_title === seoWithDynamic ? prev : { ...prev, seo_title: seoWithDynamic }
+    )
+}, [
+    formData.title,
+    formData.address_neighborhood,
+    formData.address_city,
+    formData.address_uf,
+    formData.specs?.quartos, // Dependência do campo dinâmico
+    formData.specs?.banheiros, // Dependência do campo dinâmico
+    formData.specs?.area_construida, // Dependência do campo dinâmio
+    formData.specs?.piscina, // Dependência do campo dinâmio 
+    isSeoTitleDirty,
+    types
+])
 
     const handleCepSearch = async () => {
         const cep = formData.address_cep?.replace(/\D/g, '')
@@ -123,25 +261,101 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
         }))
     }
 
+    const pricing = (formData.features as any)?.pricing || { mode: 'exact', label: 'Preços a partir de' }
+    const isExactPrice = pricing.mode === 'exact' || !pricing.mode
+    const pricingLabel = pricing.label || (pricing.mode === 'special' ? 'Investimento Especial' : 'Preços a partir de')
+
+    const updatePricing = (next: { mode?: string; label?: string }) => {
+        setFormData(prev => ({
+            ...prev,
+            features: {
+                ...(prev.features as object || {}),
+                pricing: {
+                    ...(prev.features as any)?.pricing,
+                    ...next,
+                },
+            },
+        }))
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setIsLoading(true)
 
         try {
-            // Generate slug if new or title changed
-            const slug = formData.slug || formData.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s-]/g, '').replace(/\s+/g, '-')
+            if (!formData.title?.trim() || !formData.type_id || !formData.description?.trim()) {
+                toast.error('Preencha título, tipo e descrição do imóvel')
+                return
+            }
+            const typeName = types.find(t => t.id === formData.type_id)?.name || ''
 
-            const payload = {
+            const rawSeoTitle = (formData.seo_title || buildSeoTitle({
+                title: formData.seo_title,
+                typeName,
+                neighborhood: formData.address_neighborhood,
+                city: formData.address_city,
+                uf: formData.address_uf,
+            }) || formData.title || formData.slug || '').trim()
+            const seoTitleSanitized = sanitizeSeoInput(rawSeoTitle || '')
+            const fallbackBase = sanitizeSlugBase(formData.title || formData.code || 'imovel')
+            const slugBase = seoTitleSanitized || fallbackBase
+
+            const payload: Partial<Property> = {
                 ...formData,
-                slug,
+                seo_title: seoTitleSanitized || formData.seo_title,
                 updated_at: new Date().toISOString()
             }
 
             if (isEditing && initialData) {
+                const codeForSlug = payload.real_estate_code || payload.code || initialData.real_estate_code || initialData.code || ''
+                const slugSuffix = sanitizeCodeForSlug(codeForSlug).replace(/^-+/g, '')
+                const slugBaseSafe = (slugBase || '').replace(/-+$/g, '')
+                const finalSlug = [slugBaseSafe, slugSuffix].filter(Boolean).join('-')
+                payload.slug = finalSlug
                 const { error } = await supabase.from('properties').update(payload).eq('id', initialData.id)
                 if (error) throw error
                 toast.success('Imóvel atualizado com sucesso!')
             } else {
+                if (!payload.code) {
+                    const defaultPrefix = basePrefix || 'OLI-'
+                    const rawPrefix = useDynamicPrefix && customPrefix.trim() ? customPrefix : defaultPrefix
+                    const finalPrefix = formatCodePrefix(rawPrefix || 'OLI-')
+
+                    const { data: codeRows } = await supabase
+                        .from('properties')
+                        .select('code')
+                        .order('created_at', { ascending: false })
+                        .limit(50)
+
+                    const maxNumber = Math.max(0, ...(codeRows || []).map((row: any) => extractCodeNumber(row.code)))
+                    const nextNumber = maxNumber + 1
+                    const nextCode = `${finalPrefix}${String(nextNumber).padStart(6, '0')}`
+
+                    payload.code = nextCode
+                    if (!payload.real_estate_code) payload.real_estate_code = nextCode
+                }
+
+                const codeForSlug = payload.real_estate_code || payload.code || ''
+                const slugSuffix = sanitizeCodeForSlug(codeForSlug).replace(/^-+/g, '')
+                const slugBaseSafe = (slugBase || '').replace(/-+$/g, '')
+                const finalSlug = [slugBaseSafe, slugSuffix].filter(Boolean).join('-')
+                payload.slug = finalSlug
+
+if (
+  !confirm(
+    `🔗 Link final para cadastro do imóvel:
+
+imoveis/${finalSlug}
+
+⚠️ Não é recomendado alterar após a criação do imóvel, pois pode gerar erros e impactar buscas futuras.
+
+Deseja continuar mesmo assim?`
+  )
+) {
+  setIsLoading(false)
+  return
+}
+
                 const { error } = await supabase.from('properties').insert([payload])
                 if (error) throw error
                 toast.success('Imóvel cadastrado com sucesso!')
@@ -205,24 +419,60 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="status">Status do Imóvel</Label>
-                                    <Select value={formData.status || 'available'} onValueChange={v => v && setFormData({ ...formData, status: v })}>
+                                    <Select value={formData.status || activeStatusOptions[0]?.value || 'available'} onValueChange={v => v && setFormData({ ...formData, status: v })}>
                                         <SelectTrigger>
-                                            <SelectValue />
+                                            <span className="flex-1 text-left">{selectedStatusLabel}</span>
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="available">Disponível</SelectItem>
-                                            <SelectItem value="reserved">Reservado</SelectItem>
-                                            <SelectItem value="sold">Vendido</SelectItem>
-                                            <SelectItem value="draft">Rascunho / Inativo</SelectItem>
+                                            {activeStatusOptions.map((status) => (
+                                                <SelectItem key={status.id} value={status.value}>
+                                                    {status.label}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
                                 </div>
+                            </div>
+                            <div className="flex flex-col gap-4 rounded-xl border p-4 bg-slate-50">
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <Label className="text-sm font-bold">Valor exato</Label>
+                                        <p className="text-[10px] text-muted-foreground">Exibe o valor real no site</p>
+                                    </div>
+                                    <Switch checked={isExactPrice} onCheckedChange={(v) => updatePricing({ mode: v ? 'exact' : (pricing.mode === 'special' ? 'special' : 'from') })} />
+                                </div>
+                                {!isExactPrice && (
+                                    <div className="space-y-2">
+                                        <Label>Texto exibido no valor</Label>
+                                        <Select
+                                            value={pricing.mode || 'from'}
+                                            onValueChange={(v) => {
+                                                const labelMap: Record<string, string> = {
+                                                    from: 'Preços a partir de',
+                                                    special: 'Investimento Especial',
+                                                    exact: '',
+                                                }
+                                                updatePricing({ mode: v ?? 'from', label: labelMap[v ?? 'from'] || 'Preços a partir de' })
+                                            }}
+                                        >
+                                            <SelectTrigger className="w-[90%]">
+                                                <span className="flex-1 text-left">{pricingLabel}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="from">Preços a partir de</SelectItem>
+                                                <SelectItem value="special">Investimento Especial</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="type">Tipo de Imóvel</Label>
                                 <Select value={formData.type_id || ''} onValueChange={v => setFormData({ ...formData, type_id: v })}>
                                     <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Selecione o tipo para carregar os campos específicos" />
+                                        <span className={`flex-1 text-left ${formData.type_id ? '' : 'text-muted-foreground'}`}>
+                                            {formData.type_id ? selectedTypeLabel : 'Selecione o tipo para carregar os campos específicos'}
+                                        </span>
                                     </SelectTrigger>
                                     <SelectContent>
                                         {types.map(t => (
@@ -239,6 +489,7 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
                                     placeholder="Detalhe as características, benefícios e diferenciais deste imóvel..."
                                     value={formData.description || ''}
                                     onChange={e => setFormData({ ...formData, description: e.target.value })}
+                                    required
                                 />
                             </div>
                         </CardContent>
@@ -360,6 +611,47 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
                                 mainImageIndex={formData.main_image_index || 0}
                                 onMainImageChange={(idx) => setFormData({ ...formData, main_image_index: idx })}
                             />
+
+                            <div className="mt-6 space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <Label>Tour 360°</Label>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Ajuda sobre tour 360"
+                                                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border text-muted-foreground hover:text-primary hover:border-primary transition-colors"
+                                                    />
+                                                }
+                                            >
+                                                <HelpCircle className="w-3.5 h-3.5" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                Aceita links de tours como Matterport, Kuula ou similares. Ex:
+                                                https://my.matterport.com/show/?m=XXXX ou https://kuula.co/share/XXXXX
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </div>
+                                <Input
+                                    placeholder="Cole o link do tour 360°"
+                                    value={formData.tour_360_url || ''}
+                                    onChange={e => setFormData({ ...formData, tour_360_url: e.target.value })}
+                                />
+                                {formData.tour_360_url && (
+                                    <div className="aspect-video w-full overflow-hidden rounded-xl border bg-slate-50">
+                                        <iframe
+                                            src={formData.tour_360_url}
+                                            title="Preview Tour 360"
+                                            className="w-full h-full"
+                                            allowFullScreen
+                                            loading="lazy"
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -372,14 +664,27 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
                             <div className="space-y-2">
-                                <Label>Código Imobiliária (OLI#)</Label>
+                                <Label>Código Imobiliária ({basePrefix})</Label>
                                 <Input
-                                    value={formData.real_estate_code || ''}
+                                    value={formData.real_estate_code || formData.code || ''}
                                     readOnly
                                     className="bg-slate-100 font-mono font-bold text-slate-500 cursor-not-allowed"
                                     placeholder="Gerado automaticamente"
                                 />
                             </div>
+                            {useDynamicPrefix && !isEditing && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <Label>Prefixo do Código (dinâmico)</Label>
+                                        <span className="text-[10px] text-muted-foreground">Padrão: {basePrefix || 'OLI-'}</span>
+                                    </div>
+                                    <Input
+                                        value={customPrefix}
+                                        onChange={e => setCustomPrefix(e.target.value)}
+                                        placeholder={basePrefix || 'OLI-'}
+                                    />
+                                </div>
+                            )}
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label>Código Interno</Label>
@@ -485,8 +790,36 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
                         </CardHeader>
                         <CardContent className="space-y-4 pt-6">
                             <div className="space-y-2">
-                                <Label>Título SEO (meta title)</Label>
-                                <Input value={formData.seo_title || ''} onChange={e => setFormData({ ...formData, seo_title: e.target.value })} placeholder="Título para o Google" />
+                                <div className="flex items-center gap-2">
+                                    <Label>Título SEO (meta title)</Label>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Ajuda SEO"
+                                                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border text-muted-foreground hover:text-primary hover:border-primary transition-colors"
+                                                    />
+                                                }
+                                            >
+                                                <HelpCircle className="w-3.5 h-3.5" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                Use palavras-chave locais. A maioria das pessoas pesquisa imóvel + cidade.
+                                                Ex: "apartamento à venda em Curitiba".
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </div>
+                                  <Input
+                                      value={formData.seo_title || ''}
+                                      onChange={e => {
+                                          setIsSeoTitleDirty(true)
+                                          setFormData({ ...formData, seo_title: sanitizeSeoInput(e.target.value) })
+                                      }}
+                                      placeholder="Título para o Google"
+                                  />
                             </div>
                             <div className="space-y-2">
                                 <Label>Descrição SEO (meta description)</Label>

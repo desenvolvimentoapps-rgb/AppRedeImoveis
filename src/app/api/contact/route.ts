@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -14,17 +14,7 @@ function escapeHtml(input: string) {
     .replace(/'/g, '&#39;')
 }
 
-async function getRecipientEmail() {
-  const { data } = await supabaseAdmin
-    .from('cms_settings')
-    .select('key, value')
-    .in('key', ['company_info', 'footer_info'])
-
-  const companyInfo = data?.find((item) => item.key === 'company_info')?.value as any
-  const footerInfo = data?.find((item) => item.key === 'footer_info')?.value as any
-
-  return footerInfo?.email || companyInfo?.email || null
-}
+const toEmail = 'desenvolvimentoimoveis@gmail.com'
 
 export async function POST(request: Request) {
   try {
@@ -32,6 +22,22 @@ export async function POST(request: Request) {
       throw new Error('RESEND_API_KEY not configured')
     }
 
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    if (!supabaseUrl || !serviceRoleKey) {
+      return NextResponse.json(
+        { error: 'Supabase admin nao configurado no servidor.' },
+        { status: 500 }
+      )
+    }
+    if (serviceRoleKey.startsWith('sb_publishable') || serviceRoleKey.startsWith('sb_public')) {
+      return NextResponse.json(
+        { error: 'SUPABASE_SERVICE_ROLE_KEY invalida. Use a chave service_role (sb_secret_*).' },
+        { status: 500 }
+      )
+    }
+
+    const supabaseAdmin = getSupabaseAdmin()
     const resend = new Resend(process.env.RESEND_API_KEY)
     const body = await request.json()
 
@@ -44,10 +50,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
     }
 
-    const toEmail = await getRecipientEmail()
-    if (!toEmail) {
-      return NextResponse.json({ error: 'Recipient email not configured' }, { status: 500 })
-    }
+    const toEmailAddress = toEmail
 
     // Save lead before sending the email to avoid losing the contact
     const { error: leadError } = await supabaseAdmin
@@ -71,9 +74,11 @@ export async function POST(request: Request) {
     const safePhone = escapeHtml(phone)
     const safeMessage = escapeHtml(message)
 
+    
+
     const emailResult = await resend.emails.send({
       from: 'onboarding@resend.dev',
-      to: toEmail,
+      to: toEmailAddress,
       subject: `Novo contato do site - ${safeName}`,
       replyTo: safeEmail,
       html: `

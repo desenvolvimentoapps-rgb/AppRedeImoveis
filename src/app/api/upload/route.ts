@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { cloudinary } from '@/lib/cloudinary/server'
 
 export const runtime = 'nodejs'
@@ -16,22 +16,23 @@ export async function POST(request: Request) {
         const file = formData.get('file')
         const folder = normalizeFolder(formData.get('folder')?.toString() || null)
 
-        if (!file || !(file instanceof File)) {
-            return NextResponse.json({ error: 'Arquivo nao encontrado' }, { status: 400 })
+        if (!file || typeof file === 'string') {
+            return NextResponse.json({ error: 'Arquivo não encontrado' }, { status: 400 })
         }
 
         const config = cloudinary.config()
         if (!config.cloud_name || !config.api_key || !config.api_secret) {
             return NextResponse.json(
-                { error: 'Cloudinary nao configurado. Verifique as variaveis de ambiente.' },
+                { error: 'Cloudinary não configurado. Verifique as variáveis de ambiente.' },
                 { status: 500 }
             )
         }
 
-        const arrayBuffer = await file.arrayBuffer()
+        const fileObj = file as File
+        const arrayBuffer = await fileObj.arrayBuffer()
         const buffer = Buffer.from(arrayBuffer)
         const base64 = buffer.toString('base64')
-        const dataUri = `data:${file.type};base64,${base64}`
+        const dataUri = `data:${fileObj.type};base64,${base64}`
 
         const uploadResult = await cloudinary.uploader.upload(dataUri, {
             folder,

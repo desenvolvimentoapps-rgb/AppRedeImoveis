@@ -1,12 +1,14 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission } from '@/lib/permissions'
 import { PropertyType } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
@@ -19,6 +21,10 @@ export default function PropertyTypesPage() {
     const [isLoading, setIsLoading] = useState(false)
     const [editingType, setEditingType] = useState<PropertyType | null>(null)
     const supabase = createClient()
+    const { profile } = useAuthStore()
+    const canCreate = hasPermission(profile, 'cms_types', 'create')
+    const canEdit = hasPermission(profile, 'cms_types', 'edit')
+    const canDelete = hasPermission(profile, 'cms_types', 'delete')
 
     // Form states
     const [name, setName] = useState('')
@@ -35,6 +41,15 @@ export default function PropertyTypesPage() {
     }, [supabase])
 
     const handleOpenDialog = (type?: PropertyType) => {
+        if (type && !canEdit) {
+            toast.error('Sem permissão para editar tipos')
+            return
+        }
+        if (!type && !canCreate) {
+            toast.error('Sem permissão para criar tipos')
+            return
+        }
+
         if (type) {
             setEditingType(type)
             setName(type.name)
@@ -51,6 +66,14 @@ export default function PropertyTypesPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (editingType && !canEdit) {
+            toast.error('Sem permissão para editar tipos')
+            return
+        }
+        if (!editingType && !canCreate) {
+            toast.error('Sem permissão para criar tipos')
+            return
+        }
         setIsLoading(true)
 
         try {
@@ -77,6 +100,10 @@ export default function PropertyTypesPage() {
     }
 
     const handleDelete = async (id: string) => {
+        if (!canDelete) {
+            toast.error('Sem permissão para excluir tipos')
+            return
+        }
         if (!confirm('Tem certeza? Isso pode afetar imóveis vinculados.')) return
 
         try {
@@ -96,7 +123,7 @@ export default function PropertyTypesPage() {
                     <h1 className="text-3xl font-bold">Tipos de Imóvel</h1>
                     <p className="text-muted-foreground mt-1">Gerencie as categorias de imóveis do sistema</p>
                 </div>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} disabled={!canCreate} title={!canCreate ? 'Sem permissão para criar tipos' : undefined}>
                     <Plus className="w-4 h-4 mr-2" />
                     Novo Tipo
                 </Button>
@@ -166,10 +193,10 @@ export default function PropertyTypesPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(type)}>
+                                        <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(type)} disabled={!canEdit} title={!canEdit ? 'Sem permissão' : 'Editar'}>
                                             <Settings2 className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(type.id)}>
+                                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(type.id)} disabled={!canDelete} title={!canDelete ? 'Sem permissão' : 'Excluir'}>
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
@@ -182,3 +209,4 @@ export default function PropertyTypesPage() {
         </div>
     )
 }
+

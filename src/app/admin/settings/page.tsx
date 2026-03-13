@@ -1,30 +1,57 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission } from '@/lib/permissions'
 import { CMSSettings } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { Save, Building2, Palette, Loader2, Globe, MessageSquare } from 'lucide-react'
 
 const DEFAULT_HOME_CONTENT = {
-    hero_badge: 'Exclusividade e Sofisticacao',
-    hero_title_line1: 'Encontre a sua Proxima',
-    hero_title_line2: 'Conquista Imobiliaria.',
-    hero_subtitle: 'Curadoria exclusiva dos melhores lancamentos e imoveis de alto padrao com atendimento premium.',
-    about_title: 'Excelencia em Atendimento Imobiliario',
-    about_text: 'Olivia Prado especialistas em lancamentos e imoveis de alto padrao.',
-    about_secondary_text: 'Nossa missao e proporcionar um atendimento personalizado e exclusivo.',
+    hero_badge: 'Exclusividade e Sofisticação',
+    hero_title_line1: 'Encontre a sua Próxima',
+    hero_title_line2: 'Conquista Imobiliária.',
+    hero_subtitle: 'Curadoria exclusiva dos melhores lançamentos e imóveis de alto padrão com atendimento premium.',
+    about_title: 'Excelência em Atendimento Imobiliário',
+    about_text: 'Olivia Prado especialistas em lançamentos e imóveis de alto padrão.',
+    about_secondary_text: 'Nossa missão é proporcionar um atendimento personalizado e exclusivo.',
     about_image_url: '',
+    about_stat_1_value: '10+',
+    about_stat_1_label: 'Anos de Mercado',
+    about_stat_2_value: '500+',
+    about_stat_2_label: 'Sonhos Realizados',
     contact_title_line1: 'Vamos Encontrar seu',
     contact_title_line2: 'Novo Lar?',
-    contact_subtitle: 'Deixe sua mensagem e um de nossos especialistas entrara em contato em breve.',
+    contact_subtitle: 'Deixe sua mensagem e um de nossos especialistas entrará em contato em breve.',
     contact_address: 'Curitiba - PR | Ponta Grossa - PR',
+    contact_address_label: 'Endereço Principal',
     contact_phone: '(41) 99999-9999',
+    contact_phone_label: 'Fale Conosco',
+    contact_section_bg: '',
+    contact_section_accent: '',
+}
+
+const DEFAULT_PROPERTY_DETAILS = {
+    lead_title: 'Agende uma Visita',
+    lead_subtitle: 'Deixe seus dados e nosso especialista entrará em contato em menos de 15 minutos.',
+    lead_note: 'Link: {property_url} | Código: {property_code} | Interno: {internal_code}',
+    lead_form_bg: '',
+    lead_form_text: '',
+    lead_form_button_bg: '',
+    lead_form_button_text: '',
+    security_title: 'Compra Segura',
+    security_subtitle: 'Certificação Olivia Prado',
+    security_description: 'Garantimos transparência total e assessoria jurídica completa para sua tranquilidade e segurança financeira.',
+    security_bg: '',
+    security_text: '',
+    security_accent: '',
 }
 
 export default function SettingsPage() {
@@ -32,6 +59,8 @@ export default function SettingsPage() {
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const supabase = createClient()
+    const { profile } = useAuthStore()
+    const canEditSettings = hasPermission(profile, 'settings', 'edit')
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -48,24 +77,41 @@ export default function SettingsPage() {
 
         setSettings((prev) => {
             const hasHomeContent = prev.some((s) => s.key === 'home_content')
+            const hasPropertyDetails = prev.some((s) => s.key === 'property_details')
             const next = prev.map((s) => {
                 if (s.key !== 'home_content') return s
                 return { ...s, value: { ...DEFAULT_HOME_CONTENT, ...s.value } }
             })
+            const merged = next.map((s) => {
+                if (s.key !== 'property_details') return s
+                return { ...s, value: { ...DEFAULT_PROPERTY_DETAILS, ...s.value } }
+            })
 
-            if (hasHomeContent) return next
+            const finalSettings: CMSSettings[] = [...merged]
 
-            return [
-                ...next,
-                {
+            if (!hasHomeContent) {
+                finalSettings.push({
                     id: 'local-home-content',
                     key: 'home_content',
-                    label: 'Conteudo da Home',
+                    label: 'Conteúdo da Home',
                     description: 'Textos e imagens da Home',
                     value: DEFAULT_HOME_CONTENT,
                     updated_at: new Date().toISOString(),
-                } as CMSSettings,
-            ]
+                } as CMSSettings)
+            }
+
+            if (!hasPropertyDetails) {
+                finalSettings.push({
+                    id: 'local-property-details',
+                    key: 'property_details',
+                    label: 'Detalhes do Imóvel',
+                    description: 'Textos e cores dos detalhes do Imóvel',
+                    value: DEFAULT_PROPERTY_DETAILS,
+                    updated_at: new Date().toISOString(),
+                } as CMSSettings)
+            }
+
+            return finalSettings
         })
     }, [isLoading])
 
@@ -79,6 +125,10 @@ export default function SettingsPage() {
     }
 
     const handleSave = async (s: CMSSettings) => {
+        if (!canEditSettings) {
+            toast.error('Sem permissão para salvar configurações')
+            return
+        }
         setIsSaving(true)
         try {
             // Use upsert to allow new keys without pre-seeding the database
@@ -95,7 +145,7 @@ export default function SettingsPage() {
                 .upsert(payload, { onConflict: 'key' })
 
             if (error) throw error
-            toast.success(`Configuracoes de "${s.label}" salvas!`)
+            toast.success(`Configurações de "${s.label}" salvas!`)
         } catch (error: any) {
             toast.error('Erro ao salvar', { description: error.message })
         } finally {
@@ -116,6 +166,7 @@ export default function SettingsPage() {
     const footerInfo = settings.find(s => s.key === 'footer_info')
     const whatsappConfig = settings.find(s => s.key === 'whatsapp_config')
     const homeContent = settings.find(s => s.key === 'home_content')
+    const propertyDetails = settings.find(s => s.key === 'property_details')
 
     return (
         <div className="space-y-8 max-w-4xl pb-20 animate-in fade-in duration-500">
@@ -134,7 +185,7 @@ export default function SettingsPage() {
                             <CardTitle className="flex items-center gap-2">
                                 <Building2 className="w-5 h-5 text-indigo-600" /> Informações da Empresa
                             </CardTitle>
-                            <Button onClick={() => handleSave(companyInfo)} disabled={isSaving} size="sm">
+                            <Button onClick={() => handleSave(companyInfo)} disabled={isSaving || !canEditSettings} size="sm">
                                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                                 Salvar
                             </Button>
@@ -153,6 +204,16 @@ export default function SettingsPage() {
                                     <Label>Propriedade Prefixo de Código (ex: OLI-)</Label>
                                     <Input value={companyInfo.value.code_prefix || 'OLI-'} onChange={e => handleValueChange('company_info', 'code_prefix', e.target.value)} />
                                 </div>
+                                <div className="flex items-center justify-between p-3 border rounded-lg bg-slate-50 md:col-span-2">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-sm font-bold">Usar prefixo dinâmico</Label>
+                                        <p className="text-[10px] text-muted-foreground">Permite definir um prefixo personalizado ao criar um imóvel</p>
+                                    </div>
+                                    <Switch
+                                        checked={!!companyInfo.value.use_dynamic_prefix}
+                                        onCheckedChange={v => handleValueChange('company_info', 'use_dynamic_prefix', v)}
+                                    />
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
@@ -165,7 +226,7 @@ export default function SettingsPage() {
                             <CardTitle className="flex items-center gap-2">
                                 <MessageSquare className="w-5 h-5 text-emerald-600" /> WhatsApp & Mensagens
                             </CardTitle>
-                            <Button onClick={() => handleSave(whatsappConfig)} disabled={isSaving} size="sm">
+                            <Button onClick={() => handleSave(whatsappConfig)} disabled={isSaving || !canEditSettings} size="sm">
                                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                                 Salvar
                             </Button>
@@ -210,7 +271,7 @@ export default function SettingsPage() {
                             <CardTitle className="flex items-center gap-2">
                                 <Palette className="w-5 h-5 text-indigo-600" /> Identidade Visual & Cores
                             </CardTitle>
-                            <Button onClick={() => handleSave(appearance)} disabled={isSaving} size="sm">
+                            <Button onClick={() => handleSave(appearance)} disabled={isSaving || !canEditSettings} size="sm">
                                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                                 Salvar
                             </Button>
@@ -231,22 +292,22 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     <Label>Cor Primária</Label>
                                     <div className="flex gap-2">
-                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.primary_color || '#0f172a' }} />
                                         <Input value={appearance.value.primary_color || '#0f172a'} onChange={e => handleValueChange('appearance', 'primary_color', e.target.value)} />
+                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.primary_color || '#0f172a' }} />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Cor Secundária</Label>
                                     <div className="flex gap-2">
-                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.secondary_color || '#475569' }} />
                                         <Input value={appearance.value.secondary_color || '#475569'} onChange={e => handleValueChange('appearance', 'secondary_color', e.target.value)} />
+                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.secondary_color || '#475569' }} />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Cor de Destaque (Accent)</Label>
                                     <div className="flex gap-2">
-                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.accent_color || '#4f46e5' }} />
                                         <Input value={appearance.value.accent_color || '#4f46e5'} onChange={e => handleValueChange('appearance', 'accent_color', e.target.value)} />
+                                        <div className="w-10 h-10 rounded border" style={{ backgroundColor: appearance.value.accent_color || '#4f46e5' }} />
                                     </div>
                                 </div>
                             </div>
@@ -260,9 +321,9 @@ export default function SettingsPage() {
                     <Card className="shadow-sm border-slate-200">
                         <CardHeader className="bg-slate-50/50 flex flex-row items-center justify-between">
                             <CardTitle className="flex items-center gap-2">
-                                <Globe className="w-5 h-5 text-sky-600" /> Conteudo da Home
+                                <Globe className="w-5 h-5 text-sky-600" /> Conteúdo da Home
                             </CardTitle>
-                            <Button onClick={() => handleSave(homeContent)} disabled={isSaving} size="sm">
+                            <Button onClick={() => handleSave(homeContent)} disabled={isSaving || !canEditSettings} size="sm">
                                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                                 Salvar
                             </Button>
@@ -274,22 +335,22 @@ export default function SettingsPage() {
                                     <Input value={homeContent.value.hero_badge || ''} onChange={e => handleValueChange('home_content', 'hero_badge', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Hero - Titulo Linha 1</Label>
+                                    <Label>Hero - Título Linha 1</Label>
                                     <Input value={homeContent.value.hero_title_line1 || ''} onChange={e => handleValueChange('home_content', 'hero_title_line1', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Hero - Titulo Linha 2</Label>
+                                    <Label>Hero - Título Linha 2</Label>
                                     <Input value={homeContent.value.hero_title_line2 || ''} onChange={e => handleValueChange('home_content', 'hero_title_line2', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Hero - Subtitulo</Label>
+                                    <Label>Hero - SubTítulo</Label>
                                     <Textarea value={homeContent.value.hero_subtitle || ''} onChange={e => handleValueChange('home_content', 'hero_subtitle', e.target.value)} />
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                                 <div className="space-y-2">
-                                    <Label>Sobre - Titulo</Label>
+                                    <Label>Sobre - Título</Label>
                                     <Input value={homeContent.value.about_title || ''} onChange={e => handleValueChange('home_content', 'about_title', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
@@ -308,24 +369,136 @@ export default function SettingsPage() {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                                 <div className="space-y-2">
-                                    <Label>Contato - Titulo Linha 1</Label>
+                                    <Label>Sobre - Estatistica 1 (Valor)</Label>
+                                    <Input value={homeContent.value.about_stat_1_value || ''} onChange={e => handleValueChange('home_content', 'about_stat_1_value', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Sobre - Estatistica 1 (Texto)</Label>
+                                    <Input value={homeContent.value.about_stat_1_label || ''} onChange={e => handleValueChange('home_content', 'about_stat_1_label', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Sobre - Estatistica 2 (Valor)</Label>
+                                    <Input value={homeContent.value.about_stat_2_value || ''} onChange={e => handleValueChange('home_content', 'about_stat_2_value', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Sobre - Estatistica 2 (Texto)</Label>
+                                    <Input value={homeContent.value.about_stat_2_label || ''} onChange={e => handleValueChange('home_content', 'about_stat_2_label', e.target.value)} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                                <div className="space-y-2">
+                                    <Label>Contato - Título Linha 1</Label>
                                     <Input value={homeContent.value.contact_title_line1 || ''} onChange={e => handleValueChange('home_content', 'contact_title_line1', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Contato - Titulo Linha 2</Label>
+                                    <Label>Contato - Título Linha 2</Label>
                                     <Input value={homeContent.value.contact_title_line2 || ''} onChange={e => handleValueChange('home_content', 'contact_title_line2', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Contato - Subtitulo</Label>
+                                    <Label>Contato - SubTítulo</Label>
                                     <Textarea value={homeContent.value.contact_subtitle || ''} onChange={e => handleValueChange('home_content', 'contact_subtitle', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Contato - Endereco</Label>
+                                    <Label>Contato - Endereço</Label>
                                     <Input value={homeContent.value.contact_address || ''} onChange={e => handleValueChange('home_content', 'contact_address', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Contato - Telefone</Label>
                                     <Input value={homeContent.value.contact_phone || ''} onChange={e => handleValueChange('home_content', 'contact_phone', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Contato - Label Endereço</Label>
+                                    <Input value={homeContent.value.contact_address_label || ''} onChange={e => handleValueChange('home_content', 'contact_address_label', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Contato - Label Telefone</Label>
+                                    <Input value={homeContent.value.contact_phone_label || ''} onChange={e => handleValueChange('home_content', 'contact_phone_label', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Contato - Cor de Fundo</Label>
+                                    <Input value={homeContent.value.contact_section_bg || ''} onChange={e => handleValueChange('home_content', 'contact_section_bg', e.target.value)} placeholder="#0f172a" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Contato - Cor de Destaque</Label>
+                                    <Input value={homeContent.value.contact_section_accent || ''} onChange={e => handleValueChange('home_content', 'contact_section_accent', e.target.value)} placeholder="#1f2937" />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Property Details */}
+                {propertyDetails && (
+                    <Card className="shadow-sm border-slate-200">
+                        <CardHeader className="bg-slate-50/50 flex flex-row items-center justify-between">
+                            <CardTitle className="flex items-center gap-2">
+                                <Globe className="w-5 h-5 text-indigo-600" /> Detalhes do Imóvel
+                            </CardTitle>
+                            <Button onClick={() => handleSave(propertyDetails)} disabled={isSaving || !canEditSettings} size="sm">
+                                {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                                Salvar
+                            </Button>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Form - Título</Label>
+                                    <Input value={propertyDetails.value.lead_title || ''} onChange={e => handleValueChange('property_details', 'lead_title', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Form - SubTítulo</Label>
+                                    <Textarea value={propertyDetails.value.lead_subtitle || ''} onChange={e => handleValueChange('property_details', 'lead_subtitle', e.target.value)} />
+                                </div>
+                                <div className="space-y-2 md:col-span-2">
+                                    <Label>Form - Nota (use {`{property_url}`}, {`{property_code}`}, {`{internal_code}`})</Label>
+                                    <Textarea value={propertyDetails.value.lead_note || ''} onChange={e => handleValueChange('property_details', 'lead_note', e.target.value)} />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                                <div className="space-y-2">
+                                    <Label>Form - Cor de Fundo</Label>
+                                    <Input value={propertyDetails.value.lead_form_bg || ''} onChange={e => handleValueChange('property_details', 'lead_form_bg', e.target.value)} placeholder="#0f172a" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Form - Cor do Texto</Label>
+                                    <Input value={propertyDetails.value.lead_form_text || ''} onChange={e => handleValueChange('property_details', 'lead_form_text', e.target.value)} placeholder="#ffffff" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Form - Cor do Botão</Label>
+                                    <Input value={propertyDetails.value.lead_form_button_bg || ''} onChange={e => handleValueChange('property_details', 'lead_form_button_bg', e.target.value)} placeholder="#ffffff" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Form - Texto do Botão</Label>
+                                    <Input value={propertyDetails.value.lead_form_button_text || ''} onChange={e => handleValueChange('property_details', 'lead_form_button_text', e.target.value)} placeholder="#0f172a" />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                                <div className="space-y-2">
+                                    <Label>Compra Segura - Título</Label>
+                                    <Input value={propertyDetails.value.security_title || ''} onChange={e => handleValueChange('property_details', 'security_title', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Compra Segura - SubTítulo</Label>
+                                    <Input value={propertyDetails.value.security_subtitle || ''} onChange={e => handleValueChange('property_details', 'security_subtitle', e.target.value)} />
+                                </div>
+                                <div className="space-y-2 md:col-span-2">
+                                    <Label>Compra Segura - Descrição</Label>
+                                    <Textarea value={propertyDetails.value.security_description || ''} onChange={e => handleValueChange('property_details', 'security_description', e.target.value)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Compra Segura - Cor de Fundo</Label>
+                                    <Input value={propertyDetails.value.security_bg || ''} onChange={e => handleValueChange('property_details', 'security_bg', e.target.value)} placeholder="#0f172a" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Compra Segura - Cor do Texto</Label>
+                                    <Input value={propertyDetails.value.security_text || ''} onChange={e => handleValueChange('property_details', 'security_text', e.target.value)} placeholder="#ffffff" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Compra Segura - Cor de Destaque</Label>
+                                    <Input value={propertyDetails.value.security_accent || ''} onChange={e => handleValueChange('property_details', 'security_accent', e.target.value)} placeholder="#10b981" />
                                 </div>
                             </div>
                         </CardContent>
@@ -339,7 +512,7 @@ export default function SettingsPage() {
                             <CardTitle className="flex items-center gap-2">
                                 <Globe className="w-5 h-5 text-sky-600" /> Conteúdo do Rodapé
                             </CardTitle>
-                            <Button onClick={() => handleSave(footerInfo)} disabled={isSaving} size="sm">
+                            <Button onClick={() => handleSave(footerInfo)} disabled={isSaving || !canEditSettings} size="sm">
                                 {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                                 Salvar
                             </Button>
@@ -390,3 +563,7 @@ export default function SettingsPage() {
         </div>
     )
 }
+
+
+
+

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ export function LoginForm() {
     const [password, setPassword] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const router = useRouter()
+    const searchParams = useSearchParams()
     const supabase = createClient()
 
     const handleLogin = async (e: React.FormEvent) => {
@@ -32,7 +33,9 @@ export function LoginForm() {
                 })
             } else {
                 toast.success('Login realizado com sucesso!')
-                router.push('/admin')
+                const redirectTarget = searchParams?.get('redirect') || '/admin'
+                router.push(redirectTarget)
+                router.refresh()
             }
         } catch (error: any) {
             toast.error('Erro inesperado', {

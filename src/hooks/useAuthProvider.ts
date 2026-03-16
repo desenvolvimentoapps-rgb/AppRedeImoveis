@@ -26,7 +26,7 @@ export function useAuthProvider() {
 
                     const { data: profile, error } = await supabase
                         .from('profiles')
-                        .select('*')
+                        .select('*, custom_role:roles(id, key, label, description, permissions, is_active)')
                         .eq('id', session.user.id)
                         .maybeSingle()
 

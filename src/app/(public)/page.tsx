@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Property, PropertyType, CMSField, CMSSettings } from '@/types/database'
+import { Property, PropertyType, CMSField, CMSSettings, Partnership } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -23,6 +23,7 @@ export default function HomePage() {
     const [types, setTypes] = useState<PropertyType[]>([])
     const [cmsFields, setCmsFields] = useState<CMSField[]>([])
     const [settings, setSettings] = useState<CMSSettings[]>([])
+    const [partnerships, setPartnerships] = useState<Partnership[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const supabase = createClient()
 
@@ -34,6 +35,8 @@ export default function HomePage() {
     const [search, setSearch] = useState('')
     const [selectedType, setSelectedType] = useState('all')
     const [dynamicFilters, setDynamicFilters] = useState<Record<string, any>>({})
+    const defaultLocationFilters = { country: 'all', state: 'all', city: 'all', uf: 'all', neighborhood: 'all' }
+    const [locationFilters, setLocationFilters] = useState(defaultLocationFilters)
 
     // Contact form
     const [contactName, setContactName] = useState('')
@@ -48,6 +51,30 @@ export default function HomePage() {
             || cmsFields.find(f => f.name?.toLowerCase() === 'plantas')?.name
     }, [cmsFields])
 
+    const locationOptions = useMemo(() => {
+        const states = new Set<string>()
+        const cities = new Set<string>()
+        const ufs = new Set<string>()
+        const neighborhoods = new Set<string>()
+
+        properties.forEach((p) => {
+            if (p.address_state) states.add(p.address_state)
+            if (p.address_city) cities.add(p.address_city)
+            if (p.address_uf) ufs.add(p.address_uf)
+            if (p.address_neighborhood) neighborhoods.add(p.address_neighborhood)
+        })
+
+        const collator = new Intl.Collator('pt-BR', { sensitivity: 'base' })
+        const sortValues = (values: string[]) => values.sort((a, b) => collator.compare(a, b))
+
+        return {
+            states: sortValues([...states]),
+            cities: sortValues([...cities]),
+            ufs: sortValues([...ufs]),
+            neighborhoods: sortValues([...neighborhoods]),
+        }
+    }, [properties])
+
     const fetchSettings = useCallback(async () => {
         const { data } = await supabase.from('cms_settings').select('*')
         if (data) setSettings(data)
@@ -56,10 +83,11 @@ export default function HomePage() {
     const fetchData = useCallback(async (options?: { silent?: boolean }) => {
         if (!options?.silent) setIsLoading(true)
         try {
-            const [propRes, typeRes, fieldRes] = await Promise.all([
+            const [propRes, typeRes, fieldRes, partnerRes] = await Promise.all([
                 supabase.from('properties').select('*, type:property_types(name)').eq('is_active', true).eq('locale', 'pt-BR').eq('plan_index', 1).order('is_featured', { ascending: false }).order('created_at', { ascending: false }),
                 supabase.from('property_types').select('*').eq('is_active', true).order('name'),
-                supabase.from('cms_fields').select('*')
+                supabase.from('cms_fields').select('*'),
+                supabase.from('partnerships').select('*').order('sort_order', { ascending: true }),
             ])
 
             if (propRes.error) throw propRes.error
@@ -69,6 +97,7 @@ export default function HomePage() {
             if (propRes.data) setProperties(propRes.data)
             if (typeRes.data) setTypes(typeRes.data)
             if (fieldRes.data) setCmsFields(fieldRes.data)
+            if (partnerRes.data) setPartnerships(partnerRes.data as Partnership[])
         } catch (error: any) {
             if (!options?.silent) {
                 toast.error('Erro ao carregar imóveis', { description: error?.message })
@@ -86,6 +115,7 @@ export default function HomePage() {
             .channel('home-updates')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, () => fetchData({ silent: true }))
             .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_fields' }, () => fetchData({ silent: true }))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partnerships' }, () => fetchData({ silent: true }))
             .on('postgres_changes', { event: '*', schema: 'public', table: 'cms_settings' }, fetchSettings)
             .subscribe()
 
@@ -120,9 +150,22 @@ export default function HomePage() {
                 return true
             })
 
-            return matchesSearch && matchesType && matchesDynamic
+            const normalize = (value: string | null | undefined) => (value || '').toString().trim().toLowerCase()
+            const matchesLocation = [
+                locationFilters.country === 'all'
+                    ? true
+                    : locationFilters.country === 'brasil'
+                        ? !p.is_exterior
+                        : !!p.is_exterior,
+                locationFilters.state === 'all' || normalize(p.address_state) === normalize(locationFilters.state),
+                locationFilters.city === 'all' || normalize(p.address_city) === normalize(locationFilters.city),
+                locationFilters.uf === 'all' || normalize(p.address_uf) === normalize(locationFilters.uf),
+                locationFilters.neighborhood === 'all' || normalize(p.address_neighborhood) === normalize(locationFilters.neighborhood),
+            ].every(Boolean)
+
+            return matchesSearch && matchesType && matchesDynamic && matchesLocation
         })
-    }, [properties, search, selectedType, dynamicFilters, filterableFields])
+    }, [properties, search, selectedType, dynamicFilters, filterableFields, locationFilters])
 
     // Pagination logic
     const totalPages = Math.ceil(filteredProperties.length / pageSize)
@@ -133,10 +176,28 @@ export default function HomePage() {
         setPage(1)
     }
 
+    const handleLocationChange = (key: keyof typeof locationFilters, val: string) => {
+        setLocationFilters(prev => ({ ...prev, [key]: val }))
+        setPage(1)
+    }
+
+    const getLocationLabel = (key: keyof typeof locationFilters, value: string) => {
+        if (key === 'country') {
+            if (value === 'brasil') return 'Brasil'
+            if (value === 'exterior') return 'Exterior'
+            return 'Todos'
+        }
+        if (value === 'all') {
+            return key === 'city' || key === 'uf' ? 'Todas' : 'Todos'
+        }
+        return value
+    }
+
     const resetFilters = () => {
         setSearch('')
         setSelectedType('all')
         setDynamicFilters({})
+        setLocationFilters(defaultLocationFilters)
         setPage(1)
     }
 
@@ -177,6 +238,12 @@ export default function HomePage() {
     const appearance = settings.find(s => s.key === 'appearance')?.value || {}
     const footerInfo = settings.find(s => s.key === 'footer_info')?.value || {}
     const homeContent = settings.find(s => s.key === 'home_content')?.value || {}
+
+    const activePartnerships = useMemo(() => {
+        return (partnerships || [])
+            .filter(p => p.is_active !== false)
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    }, [partnerships])
 
     const heroBadge = homeContent.hero_badge || 'Exclusividade e Sofisticação'
     const heroTitleLine1 = homeContent.hero_title_line1 || 'Encontre a sua Próxima'
@@ -270,6 +337,115 @@ export default function HomePage() {
                                 </SelectContent>
                             </Select>
                         </div>
+                        <Sheet>
+                            <SheetTrigger
+                                render={(
+                                    <Button variant="outline" className="h-14 px-6 rounded-xl border-slate-200 hover:bg-slate-50 text-slate-700 font-bold gap-2">
+                                        <MapPin className="w-4 h-4" />
+                                        Localização
+                                    </Button>
+                                )}
+                            />
+                            <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+                                <SheetHeader className="border-b pb-6">
+                                    <SheetTitle className="text-2xl font-bold">Localização</SheetTitle>
+                                    <SheetDescription>Filtre por país, estado, cidade, UF e bairro.</SheetDescription>
+                                </SheetHeader>
+                                <div className="py-8 space-y-6">
+                                    <div className="space-y-2">
+                                        <Label>País</Label>
+                                        <Select value={locationFilters.country} onValueChange={(v) => handleLocationChange('country', v ?? 'all')}>
+                                            <SelectTrigger className="h-12 rounded-xl">
+                                                <span className="flex-1 text-left">{getLocationLabel('country', locationFilters.country)}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Todos</SelectItem>
+                                                <SelectItem value="brasil">Brasil</SelectItem>
+                                                <SelectItem value="exterior">Exterior</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Estado</Label>
+                                        <Select value={locationFilters.state} onValueChange={(v) => handleLocationChange('state', v ?? 'all')}>
+                                            <SelectTrigger className="h-12 rounded-xl">
+                                                <span className="flex-1 text-left">{getLocationLabel('state', locationFilters.state)}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Todos</SelectItem>
+                                                {locationOptions.states.length === 0 && (
+                                                    <SelectItem value="__empty_state" disabled>Nenhum estado</SelectItem>
+                                                )}
+                                                {locationOptions.states.map((state) => (
+                                                    <SelectItem key={state} value={state}>{state}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Cidade</Label>
+                                        <Select value={locationFilters.city} onValueChange={(v) => handleLocationChange('city', v ?? 'all')}>
+                                            <SelectTrigger className="h-12 rounded-xl">
+                                                <span className="flex-1 text-left">{getLocationLabel('city', locationFilters.city)}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Todas</SelectItem>
+                                                {locationOptions.cities.length === 0 && (
+                                                    <SelectItem value="__empty_city" disabled>Nenhuma cidade</SelectItem>
+                                                )}
+                                                {locationOptions.cities.map((city) => (
+                                                    <SelectItem key={city} value={city}>{city}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>UF</Label>
+                                        <Select value={locationFilters.uf} onValueChange={(v) => handleLocationChange('uf', v ?? 'all')}>
+                                            <SelectTrigger className="h-12 rounded-xl">
+                                                <span className="flex-1 text-left">{getLocationLabel('uf', locationFilters.uf)}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Todas</SelectItem>
+                                                {locationOptions.ufs.length === 0 && (
+                                                    <SelectItem value="__empty_uf" disabled>Nenhuma UF</SelectItem>
+                                                )}
+                                                {locationOptions.ufs.map((uf) => (
+                                                    <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Bairro</Label>
+                                        <Select value={locationFilters.neighborhood} onValueChange={(v) => handleLocationChange('neighborhood', v ?? 'all')}>
+                                            <SelectTrigger className="h-12 rounded-xl">
+                                                <span className="flex-1 text-left">{getLocationLabel('neighborhood', locationFilters.neighborhood)}</span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Todos</SelectItem>
+                                                {locationOptions.neighborhoods.length === 0 && (
+                                                    <SelectItem value="__empty_neighborhood" disabled>Nenhum bairro</SelectItem>
+                                                )}
+                                                {locationOptions.neighborhoods.map((neighborhood) => (
+                                                    <SelectItem key={neighborhood} value={neighborhood}>{neighborhood}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <div className="pt-6 border-t flex gap-3 sticky bottom-0 bg-white pb-6">
+                                    <Button
+                                        variant="outline"
+                                        className="flex-1 h-12 rounded-xl"
+                                        onClick={() => setLocationFilters(defaultLocationFilters)}
+                                    >
+                                        Limpar
+                                    </Button>
+                                    <Button className="flex-1 h-12 rounded-xl shadow-lg shadow-primary/20">Aplicar</Button>
+                                </div>
+                            </SheetContent>
+                        </Sheet>
                         <Sheet>
                             <SheetTrigger
                                 render={
@@ -556,6 +732,39 @@ export default function HomePage() {
         </div>
     </div>
 </section>
+
+            {/* Partnerships Section */}
+            <section id="parcerias" className="container max-w-7xl mx-auto px-4 py-20 border-t">
+                <div className="text-center space-y-4">
+                    <span className="text-xs uppercase tracking-[0.3em] text-primary font-bold">Parcerias</span>
+                    <h2 className="text-4xl md:text-5xl font-black text-slate-900">Empresas que caminham conosco</h2>
+                    <p className="text-slate-500 max-w-2xl mx-auto">
+                        Conheça algumas marcas que confiam no nosso trabalho.
+                    </p>
+                </div>
+
+                <div className="mt-12 overflow-hidden">
+                    {activePartnerships.length === 0 ? (
+                        <div className="text-center text-sm text-muted-foreground border rounded-2xl py-10 bg-white">
+                            Nenhuma parceria cadastrada ainda.
+                        </div>
+                    ) : (
+                        <div className="partners-marquee flex gap-12 items-center w-max">
+                            {[...activePartnerships, ...activePartnerships].map((partner, idx) => (
+                                <div key={`${partner.id}-${idx}`} className="h-16 w-40 flex items-center justify-center">
+                                    {partner.link_url ? (
+                                        <a href={partner.link_url} target="_blank" rel="noreferrer" className="flex items-center justify-center">
+                                            <img src={partner.logo_url} alt={partner.name || 'Parceria'} className="h-12 max-w-full object-contain grayscale hover:grayscale-0 transition-all" />
+                                        </a>
+                                    ) : (
+                                        <img src={partner.logo_url} alt={partner.name || 'Parceria'} className="h-12 max-w-full object-contain grayscale hover:grayscale-0 transition-all" />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </section>
 
             {/* Contact Section */}
 <section id="contato" className="bg-slate-900 py-24 relative overflow-hidden" style={contactSectionBg ? { backgroundColor: contactSectionBg } : undefined}>

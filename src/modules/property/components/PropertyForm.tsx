@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useCMSStore } from '@/hooks/useCMS'
-import { Property, PropertyType, PropertyStatus } from '@/types/database'
+import { ConstructionPartner, Property, PropertyType, PropertyStatus } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -99,6 +99,7 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
     const { fields } = useCMSStore()
     const [types, setTypes] = useState<PropertyType[]>([])
     const [statuses, setStatuses] = useState<PropertyStatus[]>([])
+    const [constructionPartners, setConstructionPartners] = useState<ConstructionPartner[]>([])
     const [companyInfo, setCompanyInfo] = useState<any>({})
     const [isLoading, setIsLoading] = useState(false)
     const [isSearchingCep, setIsSearchingCep] = useState(false)
@@ -134,6 +135,8 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
             show_internal_code: false,
             show_owner_code: false,
             show_construction_code: false,
+            show_construction_partner: false,
+            construction_partner_id: null,
             is_featured: false,
             is_active: true,
             specs: {},
@@ -195,10 +198,11 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
 
     useEffect(() => {
         const fetchLookups = async () => {
-            const [typesRes, statusRes, settingsRes] = await Promise.all([
+            const [typesRes, statusRes, settingsRes, partnersRes] = await Promise.all([
                 supabase.from('property_types').select('*').eq('is_active', true).order('name'),
                 supabase.from('property_statuses').select('*').order('label', { ascending: true }),
                 supabase.from('cms_settings').select('value').eq('key', 'company_info').maybeSingle(),
+                supabase.from('construction_partners').select('*').order('name'),
             ])
 
             if (typesRes.data) setTypes(typesRes.data)
@@ -211,6 +215,7 @@ export function PropertyForm({ initialData, isEditing = false }: PropertyFormPro
             }
 
             if (settingsRes.data?.value) setCompanyInfo(settingsRes.data.value)
+            if (partnersRes.data) setConstructionPartners(partnersRes.data as ConstructionPartner[])
         }
 
         fetchLookups()
@@ -895,7 +900,40 @@ Deseja continuar mesmo assim?`
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <Label>Código Construtora</Label>
+                                <Label>Construtora Parceira</Label>
+                                <Select
+                                    value={formData.construction_partner_id || 'none'}
+                                    onValueChange={(value) => {
+                                        if (value === 'none') {
+                                            setFormData(prev => ({ ...prev, construction_partner_id: null }))
+                                            return
+                                        }
+                                        const selected = constructionPartners.find(p => p.id === value)
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            construction_partner_id: value,
+                                            construction_code: selected?.code ? selected.code : prev.construction_code,
+                                        }))
+                                    }}
+                                >
+                                    <SelectTrigger className="h-11">
+                                        <SelectValue placeholder="Selecione a construtora" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Nenhuma</SelectItem>
+                                        {constructionPartners.length === 0 && (
+                                            <SelectItem value="empty" disabled>Nenhuma construtora cadastrada</SelectItem>
+                                        )}
+                                        {constructionPartners.map((partner) => (
+                                            <SelectItem key={partner.id} value={partner.id}>
+                                                {partner.trade_name || partner.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Código Construtora (editável)</Label>
                                 <Input value={formData.construction_code || ''} onChange={e => setFormData({ ...formData, construction_code: e.target.value })} placeholder="ex: ED-GOLD-402" />
                             </div>
                             <div className="space-y-4 pt-4 border-t">
@@ -942,6 +980,13 @@ Deseja continuar mesmo assim?`
                                         <Label className="text-xs font-medium">Exibir Código Construtora?</Label>
                                     </div>
                                     <Switch size="sm" checked={formData.show_construction_code} onCheckedChange={v => setFormData({ ...formData, show_construction_code: v })} />
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 border rounded-md bg-white">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-xs font-medium">Exibir construtora parceira?</Label>
+                                    </div>
+                                    <Switch size="sm" checked={!!formData.show_construction_partner} onCheckedChange={v => setFormData({ ...formData, show_construction_partner: v })} />
                                 </div>
                             </div>
 

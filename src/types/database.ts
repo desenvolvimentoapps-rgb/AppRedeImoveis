@@ -1,10 +1,23 @@
 export type UserRole = 'hakunaadm' | 'gestaoimoveis' | 'corretor'
 
+export interface RoleDefinition {
+    id: string
+    key: string
+    label: string
+    description?: string | null
+    permissions?: any
+    is_active: boolean
+    created_at?: string
+    updated_at?: string | null
+}
+
 export interface Profile {
     id: string
     full_name: string | null
     email: string | null
     role: UserRole
+    role_id?: string | null
+    custom_role?: RoleDefinition | null
     phone: string | null
     avatar_url?: string | null
     force_password_reset: boolean
@@ -51,10 +64,17 @@ export interface Property {
     internal_code: string | null
     owner_code: string | null
     construction_code: string | null
+    construction_partner_id?: string | null
+    construction_partner?: {
+        id: string
+        name: string
+        trade_name?: string | null
+    } | null
 
     show_internal_code: boolean
     show_owner_code: boolean
     show_construction_code: boolean
+    show_construction_partner?: boolean
 
     whatsapp_br: string | null
     whatsapp_intl: string | null
@@ -152,4 +172,45 @@ export interface CMSMenu {
     required_roles: UserRole[]
     display_order: number
     is_active: boolean
+}
+
+export interface ConstructionPartner {
+    id: string
+    name: string
+    trade_name: string | null
+    cnpj: string | null
+    code: string | null
+    contract_value: number | null
+    contract_start_date: string | null
+    contract_end_date: string | null
+    city: string | null
+    state: string | null
+    uf: string | null
+    country: string | null
+    is_active: boolean
+    created_at: string
+    updated_at?: string | null
+}
+
+export interface FAQItem {
+    id: string
+    question_pt: string
+    question_en: string | null
+    answer_pt: string
+    answer_en: string | null
+    is_active: boolean
+    display_order: number
+    created_at: string
+    updated_at?: string | null
+}
+
+export interface Partnership {
+    id: string
+    name: string | null
+    logo_url: string
+    link_url: string | null
+    is_active: boolean
+    sort_order: number
+    created_at: string
+    updated_at?: string | null
 }

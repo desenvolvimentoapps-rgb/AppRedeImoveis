@@ -21,10 +21,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (user) {
             const { data: profile } = await supabase
                 .from('profiles')
-                .select('*')
+                .select('*, custom_role:roles(id, key, label, description, permissions, is_active)')
                 .eq('id', user.id)
                 .single()
-            if (profile) set({ profile })
+            if (profile) {
+                const raw = (profile as any)?.permissions
+                const parsed = typeof raw === 'string' ? (() => {
+                    try { return JSON.parse(raw) } catch { return raw }
+                })() : raw
+                set({ profile: { ...profile, permissions: parsed } })
+            }
         }
     }
 }))

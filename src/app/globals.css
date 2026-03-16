@@ -128,3 +128,20 @@
     @apply font-sans;
   }
 }
+
+@keyframes partners-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.partners-marquee {
+  animation: partners-marquee 30s linear infinite;
+}
+
+.partners-marquee:hover {
+  animation-play-state: paused;
+}

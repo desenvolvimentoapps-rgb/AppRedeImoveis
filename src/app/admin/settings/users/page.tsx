@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Profile, UserRole } from '@/types/database'
+import { Profile, UserRole, RoleDefinition } from '@/types/database'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,7 @@ type NewUserForm = {
     email: string
     password: string
     role: UserRole | ''
+    roleId: string
     phone: string
     forceReset: boolean
 }
@@ -35,6 +36,7 @@ export default function UsersPage() {
         email: '',
         password: '',
         role: '',
+        roleId: '',
         phone: '',
         forceReset: false
     })
@@ -44,6 +46,7 @@ export default function UsersPage() {
     const [resetUser, setResetUser] = useState<Profile | null>(null)
     const [resetPassword, setResetPassword] = useState('')
     const [resetForceReset, setResetForceReset] = useState(true)
+    const [roles, setRoles] = useState<RoleDefinition[]>([])
 
     const { profile } = useAuthStore()
     const supabase = createClient()
@@ -51,17 +54,38 @@ export default function UsersPage() {
     const canEditUsers = hasPermission(profile, 'users', 'edit')
     const canDeleteUsers = hasPermission(profile, 'users', 'delete')
     const canResetUsers = hasPermission(profile, 'users', 'edit')
+    const isAdmin = profile?.role === 'hakunaadm'
 
     useEffect(() => {
-        fetchUsers()
-    }, [])
+        if (profile) {
+            fetchUsers()
+            fetchRoles()
+        }
+    }, [profile])
+
+    const fetchRoles = async () => {
+        const { data, error } = await supabase
+            .from('roles')
+            .select('id, key, label, description, permissions, is_active')
+            .order('label')
+
+        if (!error) {
+            setRoles(data || [])
+        }
+    }
 
     const fetchUsers = async () => {
         setIsLoading(true)
-        const { data, error } = await supabase
+        let query = supabase
             .from('profiles')
             .select('*')
             .order('full_name')
+
+        if (!isAdmin) {
+            query = query.neq('role', 'hakunaadm')
+        }
+
+        const { data, error } = await query
 
         if (error) {
             toast.error('Erro ao carregar usuários')
@@ -84,6 +108,14 @@ export default function UsersPage() {
             toast.error('Selecione o nivel de acesso')
             return
         }
+        if (newUser.role === 'hakunaadm' && !isAdmin) {
+            toast.error('Apenas administradores podem criar outros administradores')
+            return
+        }
+        if (newUser.roleId && !isAdmin) {
+            toast.error('Apenas administradores podem definir roles personalizadas')
+            return
+        }
 
         setIsActionLoading(true)
         try {
@@ -95,6 +127,7 @@ export default function UsersPage() {
                     email: newUser.email,
                     password: newUser.password,
                     role: newUser.role,
+                    roleId: newUser.roleId || null,
                     phone: newUser.phone,
                     forceReset: newUser.forceReset,
                 }),
@@ -107,7 +140,7 @@ export default function UsersPage() {
 
             toast.success('Usuário criado com sucesso!')
             setIsCreateOpen(false)
-            setNewUser({ fullName: '', email: '', password: '', role: '', phone: '', forceReset: false })
+            setNewUser({ fullName: '', email: '', password: '', role: '', roleId: '', phone: '', forceReset: false })
             fetchUsers()
         } catch (error: any) {
             toast.error('Erro ao criar usuário', { description: error.message })
@@ -126,6 +159,14 @@ export default function UsersPage() {
             toast.error('Sem permissão para editar este usuário')
             return
         }
+        if (editingUser.role === 'hakunaadm' && !isAdmin) {
+            toast.error('Apenas administradores podem atribuir nível de administrador')
+            return
+        }
+        if ((editingUser as any).role_id && !isAdmin) {
+            toast.error('Apenas administradores podem atribuir roles personalizadas')
+            return
+        }
         setIsActionLoading(true)
         try {
             const { error } = await supabase
@@ -133,6 +174,7 @@ export default function UsersPage() {
                 .update({
                     full_name: editingUser.full_name,
                     role: editingUser.role,
+                    role_id: (editingUser as any).role_id || null,
                     phone: editingUser.phone,
                     force_password_reset: (editingUser as any).force_password_reset
                 })
@@ -153,6 +195,10 @@ export default function UsersPage() {
     const handleUpdateRole = async (userId: string, newRole: UserRole) => {
         if (!canEditUsers) {
             toast.error('Sem permissão para alterar níveis')
+            return
+        }
+        if (newRole === 'hakunaadm' && !isAdmin) {
+            toast.error('Apenas administradores podem atribuir nível de administrador')
             return
         }
         const target = users.find(u => u.id === userId)
@@ -260,12 +306,16 @@ export default function UsersPage() {
             return
         }
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ force_password_reset: !user.force_password_reset })
-                .eq('id', user.id)
+            const response = await fetch('/api/admin/users/force-reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id, forceReset: !user.force_password_reset }),
+            })
 
-            if (error) throw error
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data?.error || 'Falha ao atualizar status')
+            }
             setUsers(users.map(u => u.id === user.id ? { ...u, force_password_reset: !u.force_password_reset } : u))
             toast.success('Status de redefinição atualizado!')
         } catch (error: any) {
@@ -358,12 +408,29 @@ export default function UsersPage() {
                                     >
                                         <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="hakunaadm">Admin</SelectItem>
+                                            {isAdmin && <SelectItem value="hakunaadm">Administrador</SelectItem>}
                                             <SelectItem value="gestaoimoveis">Gestor</SelectItem>
                                             <SelectItem value="corretor">Corretor</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
+                                {isAdmin && (
+                                    <div className="space-y-2">
+                                        <Label>Role personalizada</Label>
+                                        <Select
+                                            value={newUser.roleId || 'none'}
+                                            onValueChange={(v) => setNewUser({ ...newUser, roleId: v === 'none' ? '' : (v ?? '') })}
+                                        >
+                                            <SelectTrigger><SelectValue placeholder="Opcional" /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">Sem role personalizada</SelectItem>
+                                                {roles.filter(r => r.is_active !== false).map(role => (
+                                                    <SelectItem key={role.id} value={role.id}>{role.label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
                                 <div className="space-y-2">
                                     <Label>Telefone</Label>
                                     <Input
@@ -434,7 +501,7 @@ export default function UsersPage() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="hakunaadm">Administrador</SelectItem>
+                                                {isAdmin && <SelectItem value="hakunaadm">Administrador</SelectItem>}
                                                 <SelectItem value="gestaoimoveis">Gestor</SelectItem>
                                                 <SelectItem value="corretor">Corretor</SelectItem>
                                             </SelectContent>
@@ -520,12 +587,30 @@ export default function UsersPage() {
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="hakunaadm">Admin</SelectItem>
+                                            {isAdmin && <SelectItem value="hakunaadm">Administrador</SelectItem>}
                                             <SelectItem value="gestaoimoveis">Gestor</SelectItem>
                                             <SelectItem value="corretor">Corretor</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
+                                {isAdmin && (
+                                    <div className="space-y-2">
+                                        <Label>Role personalizada</Label>
+                                        <Select
+                                            value={(editingUser as any).role_id || 'none'}
+                                            onValueChange={v => setEditingUser({ ...(editingUser as any), role_id: v === 'none' ? null : v } as any)}
+                                            disabled={!canEditDialog}
+                                        >
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">Sem role personalizada</SelectItem>
+                                                {roles.filter(r => r.is_active !== false).map(role => (
+                                                    <SelectItem key={role.id} value={role.id}>{role.label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
                                 <div className="space-y-2">
                                     <Label>Telefone</Label>
                                     <Input

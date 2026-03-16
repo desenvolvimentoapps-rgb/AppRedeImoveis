@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { CMSSettings } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Home, Phone, Mail } from 'lucide-react'
+import { FAQChat } from '@/components/faq/FAQChat'
 
 export default function PublicLayout({
     children,
@@ -23,6 +24,7 @@ export default function PublicLayout({
         home: isEnglish ? 'Home' : 'Início',
         properties: isEnglish ? 'Properties' : 'Imóveis',
         about: isEnglish ? 'About Us' : 'Sobre Nós',
+        partners: isEnglish ? 'Partnerships' : 'Parcerias',
         contact: isEnglish ? 'Contact' : 'Contato',
     }
 
@@ -121,6 +123,7 @@ export default function PublicLayout({
                         <Link href="/" className="text-sm font-medium hover:text-primary transition-colors">{navLabels.home}</Link>
                         <Link href="/#imoveis" className="text-sm font-medium hover:text-primary transition-colors">{navLabels.properties}</Link>
                         <Link href="/#sobre" className="text-sm font-medium hover:text-primary transition-colors">{navLabels.about}</Link>
+                        <Link href="/#parcerias" className="text-sm font-medium hover:text-primary transition-colors">{navLabels.partners}</Link>
                         <Link href="/#contato" className="text-sm font-medium hover:text-primary transition-colors">{navLabels.contact}</Link>
                     </nav>
                     <div className="flex items-center gap-4">
@@ -159,6 +162,7 @@ export default function PublicLayout({
                             <li><Link href="/" className="hover:text-primary transition-colors">{navLabels.home}</Link></li>
                             <li><Link href="/#imoveis" className="hover:text-primary transition-colors">{footerLabels.ourProperties}</Link></li>
                             <li><Link href="/#sobre" className="hover:text-primary transition-colors">{footerLabels.aboutCompany}</Link></li>
+                            <li><Link href="/#parcerias" className="hover:text-primary transition-colors">{navLabels.partners}</Link></li>
                             <li><Link href="/#contato" className="hover:text-primary transition-colors">{footerLabels.contactUs}</Link></li>
                         </ul>
                     </div>
@@ -185,6 +189,7 @@ export default function PublicLayout({
                     &copy; {new Date().getFullYear()} {companyInfo.name || 'Olivia Prado'} - {footerLabels.rights}
                 </div>
             </footer>
+            <FAQChat />
         </div>
     )
 }

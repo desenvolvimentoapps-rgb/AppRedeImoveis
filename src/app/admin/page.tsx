@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Building2, Users, Eye, TrendingUp, Clock, ArrowRight } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
-import { format, subDays, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns'
+import { format, subDays, startOfMonth, endOfMonth, isWithinInterval, differenceInHours, startOfDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
@@ -16,6 +16,8 @@ export default function AdminDashboard() {
         totalLeads: 0,
         recentLeads: [] as any[],
         chartData: [] as any[],
+        conversionRate: 0,
+        avgResponseHours: null as number | null,
     })
     const [isLoading, setIsLoading] = useState(true)
     const supabase = createClient()
@@ -24,11 +26,13 @@ export default function AdminDashboard() {
         const fetchDashboardData = async () => {
             setIsLoading(true)
 
-            const [propCount, leadCount, recentLeadsData, propertiesData] = await Promise.all([
+            const [propCount, leadCount, recentLeadsData, propertiesData, viewsData, leadsTimeData] = await Promise.all([
                 supabase.from('properties').select('*', { count: 'exact', head: true }),
                 supabase.from('leads').select('*', { count: 'exact', head: true }),
                 supabase.from('leads').select('*, property:properties(title, code, slug)').order('created_at', { ascending: false }).limit(5),
-                supabase.from('properties').select('created_at').order('created_at', { ascending: true })
+                supabase.from('properties').select('created_at').order('created_at', { ascending: true }),
+                supabase.from('properties').select('view_count'),
+                supabase.from('leads').select('created_at, date_contato'),
             ])
 
             // Process chart data (count by month) last 6 months
@@ -48,17 +52,44 @@ export default function AdminDashboard() {
 
             const chartData = Object.entries(months).map(([name, total]) => ({ name, total }))
 
+            const totalViews = (viewsData.data || []).reduce((acc: number, item: any) => acc + Number(item.view_count || 0), 0)
+            const conversionRate = totalViews > 0
+                ? ((leadCount.count || 0) / totalViews) * 100
+                : 0
+
+            const responseDiffs = (leadsTimeData.data || [])
+                .filter((lead: any) => lead.date_contato)
+                .map((lead: any) => {
+                    const createdAt = new Date(lead.created_at)
+                    const contatoDate = startOfDay(new Date(lead.date_contato))
+                    return Math.max(0, differenceInHours(contatoDate, createdAt))
+                })
+
+            const avgResponseHours = responseDiffs.length
+                ? responseDiffs.reduce((sum: number, val: number) => sum + val, 0) / responseDiffs.length
+                : null
+
             setStats({
                 totalProperties: propCount.count || 0,
                 totalLeads: leadCount.count || 0,
                 recentLeads: recentLeadsData.data || [],
-                chartData
+                chartData,
+                conversionRate,
+                avgResponseHours,
             })
             setIsLoading(false)
         }
 
         fetchDashboardData()
     }, [supabase])
+
+    const formatResponseTime = (hours: number | null) => {
+        if (hours === null) return '--'
+        if (hours < 24) return `${hours.toFixed(1)}h`
+        const days = Math.floor(hours / 24)
+        const remHours = Math.round(hours % 24)
+        return `${days}d ${remHours}h`
+    }
 
     if (isLoading) return <div className="p-8 text-center text-muted-foreground">Carregando dados do painel...</div>
 
@@ -100,8 +131,8 @@ export default function AdminDashboard() {
                         <TrendingUp className="h-5 w-5 text-emerald-500 opacity-70" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black">4.8%</div>
-                        <p className="text-[10px] text-muted-foreground mt-1">Lead p/ Imóvel cadastrado</p>
+                        <div className="text-3xl font-black">{stats.conversionRate.toFixed(1)}%</div>
+                        <p className="text-[10px] text-muted-foreground mt-1">Leads por visualização</p>
                     </CardContent>
                 </Card>
 
@@ -111,7 +142,7 @@ export default function AdminDashboard() {
                         <Clock className="h-5 w-5 text-amber-500 opacity-70" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black">2.5h</div>
+                        <div className="text-3xl font-black">{formatResponseTime(stats.avgResponseHours)}</div>
                         <p className="text-[10px] text-muted-foreground mt-1">Resposta ao primeiro contato</p>
                     </CardContent>
                 </Card>

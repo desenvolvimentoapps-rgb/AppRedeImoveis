@@ -99,7 +99,7 @@ export default function PropertyDetailsPage() {
             try {
                 // Fetch property, fields, and settings
                 const [propRes, fieldRes, settRes] = await Promise.all([
-                    supabase.from('properties').select('*, type:property_types(name, types_label_eng)').eq('slug', slug).eq('locale', locale).single(),
+                    supabase.from('properties').select('*, type:property_types(name, types_label_eng), construction_partner:construction_partners(name, trade_name)').eq('slug', slug).eq('locale', locale).single(),
                     supabase.from('cms_fields').select('*'),
                     supabase.from('cms_settings').select('*')
                 ])
@@ -122,7 +122,7 @@ export default function PropertyDetailsPage() {
                     // Fetch Similar Properties (Same type, excluding current)
                     const { data: similar } = await supabase
                         .from('properties')
-                        .select('*, type:property_types(name, types_label_eng)')
+                        .select('*, type:property_types(name, types_label_eng), construction_partner:construction_partners(name, trade_name)')
                         .eq('type_id', propertyData.type_id)
                         .neq('id', propertyData.id)
                         .eq('is_active', true)
@@ -135,7 +135,7 @@ export default function PropertyDetailsPage() {
                     if (propertyData.property_group_id) {
                         const { data: groupData } = await supabase
                             .from('properties')
-                            .select('*, type:property_types(name, types_label_eng)')
+                            .select('*, type:property_types(name, types_label_eng), construction_partner:construction_partners(name, trade_name)')
                             .eq('property_group_id', propertyData.property_group_id)
                             .eq('locale', locale)
                             .order('plan_index', { ascending: true })
@@ -204,6 +204,7 @@ export default function PropertyDetailsPage() {
         service: useEnglish ? 'Support' : 'Atendimento',
         callNow: useEnglish ? 'Call now' : 'Ligar agora',
         sendEmail: useEnglish ? 'Send email' : 'Enviar e-mail',
+        partnerBuilderLabel: useEnglish ? 'Partner builder' : 'Construtora Parceira',
         backToSearch: useEnglish ? 'Back to search' : 'Voltar para busca',
         notFound: useEnglish ? 'Property not found' : 'Imóvel não encontrado',
         backToHome: useEnglish ? 'Back to home' : 'Voltar para o início',
@@ -702,6 +703,11 @@ export default function PropertyDetailsPage() {
                             {(property.show_construction_code !== false) && property.construction_code && (
                                 <Badge variant="outline" className="px-3 py-1 border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                                     Cód. Construtora: <span className="ml-1 text-slate-900">{property.construction_code}</span>
+                                </Badge>
+                            )}
+                            {!!property.show_construction_partner && property.construction_partner && (
+                                <Badge variant="outline" className="px-3 py-1 border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                    {copy.partnerBuilderLabel}: <span className="ml-1 text-slate-900">{property.construction_partner.trade_name || property.construction_partner.name}</span>
                                 </Badge>
                             )}
                         </div>

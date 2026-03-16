@@ -12,12 +12,21 @@ import { Loader2, TrendingUp, Users, Building2, AlertCircle, Maximize2, X } from
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
-const COLORS = ['#0f172a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
+const PALETTES: Record<string, string[]> = {
+    classic: ['#0f172a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'],
+    ocean: ['#0ea5e9', '#22d3ee', '#14b8a6', '#38bdf8', '#06b6d4', '#0ea5e9'],
+    sunset: ['#f97316', '#fb7185', '#f43f5e', '#a855f7', '#8b5cf6', '#ec4899'],
+    forest: ['#065f46', '#10b981', '#84cc16', '#22c55e', '#16a34a', '#4d7c0f'],
+    pastel: ['#fbcfe8', '#fecaca', '#fde68a', '#bfdbfe', '#c7d2fe', '#fde2e4'],
+}
 
 export default function MyChartsPage() {
     const { profile } = useAuthStore()
     const [charts, setCharts] = useState<any[]>([])
-    const [dataSources, setDataSources] = useState<{ properties: any[], leads: any[] }>({ properties: [], leads: [] })
+    const [dataSources, setDataSources] = useState<Record<string, any[]>>({ properties: [], leads: [] })
+    const [propertyTypes, setPropertyTypes] = useState<any[]>([])
+    const [propertyStatuses, setPropertyStatuses] = useState<any[]>([])
+    const [constructionPartners, setConstructionPartners] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [expandedChart, setExpandedChart] = useState<any>(null)
     const supabase = createClient()
@@ -48,10 +57,13 @@ export default function MyChartsPage() {
         }
         chartQuery = chartQuery.in('id', ids)
 
-        const [chartsRes, propRes, leadRes] = await Promise.all([
+        const [chartsRes, propRes, leadRes, typeRes, statusRes, partnerRes] = await Promise.all([
             chartQuery,
             supabase.from('properties').select('*'),
-            supabase.from('leads').select('*')
+            supabase.from('leads').select('*'),
+            supabase.from('property_types').select('id, name'),
+            supabase.from('property_statuses').select('value, label'),
+            supabase.from('construction_partners').select('id, name, trade_name').eq('is_active', true),
         ])
 
         if (chartsRes.data) setCharts(chartsRes.data)
@@ -59,14 +71,63 @@ export default function MyChartsPage() {
             properties: propRes.data || [],
             leads: leadRes.data || []
         })
+        setPropertyTypes(typeRes.data || [])
+        setPropertyStatuses(statusRes.data || [])
+        setConstructionPartners(partnerRes.data || [])
         setIsLoading(false)
     }
 
     const processChartData = (chart: any) => {
-        const sourceData = dataSources[chart.data_source as keyof typeof dataSources] || []
         const groupBy = chart.config?.groupBy || 'status'
+        const propertySources = ['properties', 'performance_views', 'performance_clicks', 'registered_vs_accessed', 'property_values', 'property_avg_value']
+        const isPropertySource = propertySources.includes(chart.data_source)
+        const sourceData = isPropertySource
+            ? (dataSources.properties || [])
+            : (dataSources[chart.data_source as keyof typeof dataSources] || [])
+
+        const typeMap = new Map(propertyTypes.map(t => [t.id, t.name]))
+        const statusMap = new Map(propertyStatuses.map(s => [s.value, s.label]))
+        const partnerMap = new Map(constructionPartners.map(p => [p.id, p.trade_name || p.name]))
+
+        const getGroupValue = (item: any) => {
+            let val: any = ''
+            if (groupBy.startsWith('specs:')) val = item.specs?.[groupBy.split(':')[1]]
+            else if (groupBy.startsWith('amenities:')) val = item.amenities?.[groupBy.split(':')[1]]
+            else if (groupBy.startsWith('features:')) val = item.features?.[groupBy.split(':')[1]]
+            else val = item[groupBy]
+
+            if (isPropertySource) {
+                if (groupBy === 'type_id') val = typeMap.get(val) || val
+                if (groupBy === 'status') val = statusMap.get(val) || val
+                if (groupBy === 'construction_partner_id') val = partnerMap.get(val) || 'Sem construtora'
+                if (groupBy === 'is_exterior') val = val ? 'Exterior' : 'Brasil'
+                if (groupBy === 'locale') val = (val || '').toString().startsWith('en') ? 'Inglês' : 'Português'
+                if (groupBy === 'plan_index') val = `Planta ${val || 1}`
+            }
+
+            if (val === null || val === undefined || val === '') val = 'Não Definido'
+            if (typeof val === 'boolean') val = val ? 'Sim' : 'Não'
+            return val
+        }
+
+        const isValueSum = chart.data_source === 'property_values'
+        const isValueAvg = chart.data_source === 'property_avg_value'
 
         if (chart.type === 'number') {
+            if (chart.data_source === 'performance_views') {
+                return sourceData.reduce((acc: number, p: any) => acc + (p.view_count || 0), 0)
+            }
+            if (chart.data_source === 'performance_clicks') {
+                return sourceData.reduce((acc: number, p: any) => acc + (p.click_count || 0), 0)
+            }
+            if (isValueSum) {
+                return sourceData.reduce((acc: number, p: any) => acc + (Number(p.value) || 0), 0)
+            }
+            if (isValueAvg) {
+                if (sourceData.length === 0) return 0
+                const total = sourceData.reduce((acc: number, p: any) => acc + (Number(p.value) || 0), 0)
+                return Math.round(total / sourceData.length)
+            }
             return sourceData.length
         }
 
@@ -74,8 +135,7 @@ export default function MyChartsPage() {
             const field = chart.data_source === 'performance_views' ? 'view_count' : 'click_count'
             const groups: Record<string, number> = {}
             sourceData.forEach(item => {
-                let key = item[groupBy] || 'Outros'
-                if (typeof key === 'boolean') key = key ? 'Sim' : 'Não'
+                const key = getGroupValue(item)
                 groups[key] = (groups[key] || 0) + (item[field] || 0)
             })
             return Object.entries(groups).map(([name, value]) => ({ name, value }))
@@ -83,8 +143,8 @@ export default function MyChartsPage() {
 
         if (chart.data_source === 'registered_vs_accessed') {
             const totalProps = sourceData.length
-            const totalViews = sourceData.reduce((acc, p) => acc + (p.view_count || 0), 0)
-            const totalClicks = sourceData.reduce((acc, p) => acc + (p.click_count || 0), 0)
+            const totalViews = sourceData.reduce((acc: number, p: any) => acc + (p.view_count || 0), 0)
+            const totalClicks = sourceData.reduce((acc: number, p: any) => acc + (p.click_count || 0), 0)
             return [
                 { name: 'Total Imóveis', value: totalProps },
                 { name: 'Total Visitas', value: totalViews },
@@ -92,16 +152,26 @@ export default function MyChartsPage() {
             ]
         }
 
+        if (isValueAvg) {
+            const groups: Record<string, { total: number; count: number }> = {}
+            sourceData.forEach(item => {
+                const key = getGroupValue(item)
+                const value = Number(item.value) || 0
+                if (!groups[key]) groups[key] = { total: 0, count: 0 }
+                groups[key].total += value
+                groups[key].count += 1
+            })
+            return Object.entries(groups).map(([name, payload]) => ({
+                name,
+                value: payload.count ? Math.round(payload.total / payload.count) : 0,
+            }))
+        }
+
         const groups: Record<string, number> = {}
         sourceData.forEach(item => {
-            let val: any = ''
-            if (groupBy.startsWith('specs:')) val = item.specs?.[groupBy.split(':')[1]]
-            else if (groupBy.startsWith('amenities:')) val = item.amenities?.[groupBy.split(':')[1]]
-            else val = item[groupBy]
-
-            if (val === null || val === undefined || val === '') val = 'Não Definido'
-            if (typeof val === 'boolean') val = val ? 'Sim' : 'Não'
-            groups[val] = (groups[val] || 0) + 1
+            const key = getGroupValue(item)
+            const increment = isValueSum ? (Number(item.value) || 0) : 1
+            groups[key] = (groups[key] || 0) + increment
         })
 
         return Object.entries(groups).map(([name, value]) => ({ name, value }))
@@ -176,7 +246,7 @@ export default function MyChartsPage() {
                             </CardHeader>
                             <CardContent>
                                 <div className="h-[250px] w-full pt-4">
-                                    <ChartRenderer type={chart.type} data={chartData} />
+                                    <ChartRenderer type={chart.type} data={chartData} config={chart.config} />
                                 </div>
                             </CardContent>
                         </Card>
@@ -207,7 +277,7 @@ export default function MyChartsPage() {
                                         <div className="text-xl text-slate-500 font-medium mt-4">{expandedChart.title}</div>
                                     </div>
                                 ) : (
-                                    <ChartRenderer type={expandedChart.type} data={Array.isArray(expandedChartData) ? expandedChartData : []} expanded />
+                                    <ChartRenderer type={expandedChart.type} data={Array.isArray(expandedChartData) ? expandedChartData : []} expanded config={expandedChart.config} />
                                 )}
                             </div>
                         )}
@@ -241,9 +311,11 @@ export default function MyChartsPage() {
     )
 }
 
-function ChartRenderer({ type, data, expanded = false }: { type: string, data: any, expanded?: boolean }) {
+function ChartRenderer({ type, data, config, expanded = false }: { type: string, data: any, config?: any, expanded?: boolean }) {
     const minHeight = expanded ? 360 : 220
     const minWidth = 200
+    const palette = PALETTES[config?.palette] || PALETTES.classic
+    const mainColor = config?.color || palette[0] || 'var(--primary)'
 
     if (type === 'bar') {
         return (
@@ -256,13 +328,15 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
                         contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                         cursor={{ fill: '#f8fafc' }}
                     />
-                    <Bar dataKey="value" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="value" fill={mainColor} radius={[4, 4, 0, 0]} />
                 </BarChart>
             </ResponsiveContainer>
         )
     }
 
-    if (type === 'pie') {
+    if (type === 'pie' || type === 'donut') {
+        const innerRadius = type === 'donut' ? (expanded ? 100 : 55) : (expanded ? 70 : 0)
+        const outerRadius = expanded ? 150 : 70
         return (
             <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
                 <PieChart>
@@ -270,18 +344,32 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
                         data={data as any}
                         cx="50%"
                         cy="50%"
-                        innerRadius={expanded ? 100 : 50}
-                        outerRadius={expanded ? 150 : 70}
+                        innerRadius={innerRadius}
+                        outerRadius={outerRadius}
                         paddingAngle={5}
                         dataKey="value"
                         label={expanded}
                     >
                         {(data as any).map((entry: any, index: number) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            <Cell key={`cell-${index}`} fill={palette[index % palette.length]} />
                         ))}
                     </Pie>
                     <Tooltip />
                 </PieChart>
+            </ResponsiveContainer>
+        )
+    }
+
+    if (type === 'area') {
+        return (
+            <ResponsiveContainer width="100%" height="100%" minHeight={minHeight} minWidth={minWidth}>
+                <AreaChart data={data as any}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
+                    <YAxis fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="value" stroke={mainColor} fill={mainColor} fillOpacity={0.2} strokeWidth={expanded ? 3 : 2} />
+                </AreaChart>
             </ResponsiveContainer>
         )
     }
@@ -293,7 +381,7 @@ function ChartRenderer({ type, data, expanded = false }: { type: string, data: a
                 <XAxis dataKey="name" fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
                 <YAxis fontSize={expanded ? 14 : 12} tickLine={false} axisLine={false} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={expanded ? 4 : 3} dot={{ r: expanded ? 6 : 4 }} activeDot={{ r: expanded ? 8 : 6 }} />
+                <Line type="monotone" dataKey="value" stroke={mainColor} strokeWidth={expanded ? 4 : 3} dot={{ r: expanded ? 6 : 4 }} activeDot={{ r: expanded ? 8 : 6 }} />
             </LineChart>
         </ResponsiveContainer>
     )

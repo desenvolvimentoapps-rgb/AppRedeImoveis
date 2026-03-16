@@ -15,15 +15,97 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { BarChart3, PieChart, LineChart, Hash, Plus, Settings2, Trash2, Users, Loader2, Pencil } from 'lucide-react'
+import { BarChart3, PieChart, LineChart, AreaChart, Hash, Plus, Trash2, Users, Loader2, Pencil } from 'lucide-react'
+
+type ChartType = 'bar' | 'pie' | 'donut' | 'line' | 'area' | 'number'
+
+interface ChartConfig {
+    groupBy: string
+    color: string
+    palette: string
+}
 
 interface Chart {
     id: string
     title: string
     description: string
-    type: 'bar' | 'pie' | 'line' | 'number'
+    type: ChartType
     data_source: string
-    config: any
+    config: ChartConfig
+}
+
+const DEFAULT_CHART_CONFIG: ChartConfig = {
+    groupBy: 'status',
+    color: '#0f172a',
+    palette: 'classic'
+}
+
+const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
+    { value: 'bar', label: 'Barra' },
+    { value: 'line', label: 'Linha' },
+    { value: 'area', label: 'Área' },
+    { value: 'pie', label: 'Pizza' },
+    { value: 'donut', label: 'Rosca' },
+    { value: 'number', label: 'Número (KPI)' },
+]
+
+const DATA_SOURCE_OPTIONS = [
+    { value: 'properties', label: 'Imóveis (Contagem)' },
+    { value: 'property_values', label: 'Imóveis (Soma de Valores)' },
+    { value: 'leads', label: 'Leads (Contagem)' },
+    { value: 'performance_views', label: 'Visualizações (Soma)' },
+    { value: 'performance_clicks', label: 'Cliques (Soma)' },
+    { value: 'registered_vs_accessed', label: 'Cadastrados vs Acessados (Pro)' },
+]
+
+const GROUP_BY_OPTIONS = [
+    { value: 'status', label: 'Status do Imóvel' },
+    { value: 'type_id', label: 'Tipo de Imóvel' },
+    { value: 'construction_partner_id', label: 'Construtora' },
+    { value: 'is_exterior', label: 'Brasil / Exterior' },
+    { value: 'locale', label: 'Idioma' },
+    { value: 'address_state', label: 'Estado' },
+    { value: 'address_city', label: 'Cidade' },
+    { value: 'address_uf', label: 'UF' },
+    { value: 'address_neighborhood', label: 'Bairro' },
+    { value: 'is_active', label: 'Ativo / Inativo' },
+    { value: 'is_featured', label: 'Destaque' },
+    { value: 'plan_index', label: 'Plantas' },
+    { value: 'specs:area_total', label: 'Características (Área Total)' },
+    { value: 'specs:quartos', label: 'Características (Dormitórios)' },
+    { value: 'specs:banheiros', label: 'Características (Banheiros)' },
+    { value: 'amenities:piscina', label: 'Lazer (Piscina)' },
+]
+
+const PALETTE_OPTIONS = [
+    { value: 'classic', label: 'Clássica', colors: ['#0f172a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'] },
+    { value: 'ocean', label: 'Oceano', colors: ['#0ea5e9', '#22d3ee', '#14b8a6', '#38bdf8', '#06b6d4'] },
+    { value: 'sunset', label: 'Pôr do Sol', colors: ['#f97316', '#fb7185', '#f43f5e', '#a855f7', '#8b5cf6'] },
+    { value: 'forest', label: 'Floresta', colors: ['#065f46', '#10b981', '#84cc16', '#22c55e', '#16a34a'] },
+    { value: 'pastel', label: 'Pastel', colors: ['#fbcfe8', '#fecaca', '#fde68a', '#bfdbfe', '#c7d2fe'] },
+]
+
+const DATA_SOURCE_LABELS = DATA_SOURCE_OPTIONS.reduce((acc, item) => {
+    acc[item.value] = item.label
+    return acc
+}, {} as Record<string, string>)
+
+const GROUP_BY_LABELS = GROUP_BY_OPTIONS.reduce((acc, item) => {
+    acc[item.value] = item.label
+    return acc
+}, {} as Record<string, string>)
+
+const getDefaultChart = (): Partial<Chart> => ({
+    title: '',
+    description: '',
+    type: 'bar',
+    data_source: 'properties',
+    config: { ...DEFAULT_CHART_CONFIG },
+})
+
+const normalizeConfig = (config: any): ChartConfig => {
+    if (!config || typeof config !== 'object') return { ...DEFAULT_CHART_CONFIG }
+    return { ...DEFAULT_CHART_CONFIG, ...config }
 }
 
 export default function ChartsManagementPage() {
@@ -31,13 +113,8 @@ export default function ChartsManagementPage() {
     const [profiles, setProfiles] = useState<Profile[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [isCreateOpen, setIsCreateOpen] = useState(false)
-    const [newChart, setNewChart] = useState<Partial<Chart>>({
-        title: '',
-        description: '',
-        type: 'bar',
-        data_source: 'properties',
-        config: { color: '#0f172a', groupBy: 'status' }
-    })
+    const [editingChartId, setEditingChartId] = useState<string | null>(null)
+    const [newChart, setNewChart] = useState<Partial<Chart>>(getDefaultChart())
     const { profile } = useAuthStore()
     const supabase = createClient()
     const canCreateChart = hasPermission(profile, 'charts', 'create')
@@ -47,6 +124,32 @@ export default function ChartsManagementPage() {
     useEffect(() => {
         if (profile) fetchData()
     }, [profile])
+
+    const resetChartForm = () => {
+        setNewChart(getDefaultChart())
+        setEditingChartId(null)
+    }
+
+    const openCreate = () => {
+        resetChartForm()
+        setIsCreateOpen(true)
+    }
+
+    const openEdit = (chart: Chart) => {
+        setEditingChartId(chart.id)
+        setNewChart({
+            ...chart,
+            config: normalizeConfig(chart.config),
+        })
+        setIsCreateOpen(true)
+    }
+
+    const updateConfig = (patch: Partial<ChartConfig>) => {
+        setNewChart(prev => ({
+            ...prev,
+            config: { ...normalizeConfig(prev.config), ...patch }
+        }))
+    }
 
     const fetchData = async () => {
         setIsLoading(true)
@@ -72,28 +175,56 @@ export default function ChartsManagementPage() {
         setIsLoading(false)
     }
 
-    const handleCreateChart = async () => {
-        if (!canCreateChart) {
+    const handleSaveChart = async () => {
+        const isEditing = !!editingChartId
+        if (isEditing && !canEditChart) {
+            toast.error('Sem permissão para editar gráficos')
+            return
+        }
+        if (!isEditing && !canCreateChart) {
             toast.error('Sem permissão para criar gráficos')
             return
         }
         if (!newChart.title) return toast.error('Título é obrigatório')
 
+        const payload = {
+            title: newChart.title,
+            description: newChart.description || '',
+            type: (newChart.type || 'bar') as ChartType,
+            data_source: newChart.data_source || 'properties',
+            config: normalizeConfig(newChart.config),
+        }
+
         try {
-            const { data, error } = await supabase
-                .from('dashboard_charts')
-                .insert([newChart])
-                .select()
-                .single()
+            if (isEditing) {
+                const { data, error } = await supabase
+                    .from('dashboard_charts')
+                    .update(payload)
+                    .eq('id', editingChartId)
+                    .select()
+                    .single()
 
-            if (error) throw error
+                if (error) throw error
 
-            setCharts([data, ...charts])
+                setCharts(prev => prev.map(c => c.id === editingChartId ? data : c))
+                toast.success('Gráfico atualizado com sucesso!')
+            } else {
+                const { data, error } = await supabase
+                    .from('dashboard_charts')
+                    .insert([payload])
+                    .select()
+                    .single()
+
+                if (error) throw error
+
+                setCharts([data, ...charts])
+                toast.success('Gráfico criado com sucesso!')
+            }
+
             setIsCreateOpen(false)
-            setNewChart({ title: '', description: '', type: 'bar', data_source: 'properties', config: { color: '#0f172a', groupBy: 'status' } })
-            toast.success('Gráfico criado com sucesso!')
+            resetChartForm()
         } catch (error: any) {
-            toast.error('Erro ao criar gráfico', { description: error.message })
+            toast.error('Erro ao salvar gráfico', { description: error.message })
         }
     }
 
@@ -152,7 +283,7 @@ export default function ChartsManagementPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Gestão de Gráficos</h1>
                     <p className="text-muted-foreground mt-1">Crie e gerencie análises dinâmicas para o dashboard</p>
                 </div>
-                <Button onClick={() => setIsCreateOpen(true)} disabled={!canCreateChart} title={!canCreateChart ? 'Sem permissão' : undefined}>
+                <Button onClick={openCreate} disabled={!canCreateChart} title={!canCreateChart ? 'Sem permissão' : undefined}>
                     <Plus className="w-4 h-4 mr-2" /> Novo Gráfico
                 </Button>
             </div>
@@ -175,7 +306,9 @@ export default function ChartsManagementPage() {
                                     <div className="p-2 rounded-lg bg-primary/10 text-primary w-fit">
                                         {chart.type === 'bar' && <BarChart3 className="w-4 h-4" />}
                                         {chart.type === 'pie' && <PieChart className="w-4 h-4" />}
+                                        {chart.type === 'donut' && <PieChart className="w-4 h-4" />}
                                         {chart.type === 'line' && <LineChart className="w-4 h-4" />}
+                                        {chart.type === 'area' && <AreaChart className="w-4 h-4" />}
                                         {chart.type === 'number' && <Hash className="w-4 h-4" />}
                                     </div>
                                 </TableCell>
@@ -186,10 +319,10 @@ export default function ChartsManagementPage() {
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    <Badge variant="outline" className="capitalize">{chart.data_source}</Badge>
+                                    <Badge variant="outline">{DATA_SOURCE_LABELS[chart.data_source] || chart.data_source}</Badge>
                                 </TableCell>
                                 <TableCell>
-                                    <Badge variant="secondary" className="capitalize">{chart.config?.groupBy || '-'}</Badge>
+                                    <Badge variant="secondary">{GROUP_BY_LABELS[chart.config?.groupBy] || chart.config?.groupBy || '-'}</Badge>
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
@@ -197,8 +330,7 @@ export default function ChartsManagementPage() {
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => {
-                                                setNewChart(chart)
-                                                setIsCreateOpen(true)
+                                                openEdit(chart)
                                             }}
                                             disabled={!canEditChart}
                                             title={!canEditChart ? 'Sem permissão' : 'Editar'}
@@ -239,11 +371,14 @@ export default function ChartsManagementPage() {
             </Card>
 
             {/* Create Chart Dialog */}
-            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <Dialog open={isCreateOpen} onOpenChange={(open) => {
+                setIsCreateOpen(open)
+                if (!open) resetChartForm()
+            }}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
-                        <DialogTitle>Novo Gráfico Dinâmico</DialogTitle>
-                        <DialogDescription>Configure os dados e a aparência da sua análise</DialogDescription>
+                        <DialogTitle>{editingChartId ? 'Editar Gráfico Dinâmico' : 'Novo Gráfico Dinâmico'}</DialogTitle>
+                        <DialogDescription>Configure os dados, agrupamentos e aparência da sua análise</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="space-y-2">
@@ -264,10 +399,9 @@ export default function ChartsManagementPage() {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="bar">Barra</SelectItem>
-                                        <SelectItem value="pie">Pizza</SelectItem>
-                                        <SelectItem value="line">Linha</SelectItem>
-                                        <SelectItem value="number">Número (KPI)</SelectItem>
+                                        {CHART_TYPE_OPTIONS.map(option => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -278,32 +412,58 @@ export default function ChartsManagementPage() {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="properties">Imóveis (Contagem)</SelectItem>
-                                        <SelectItem value="leads">Leads (Contagem)</SelectItem>
-                                        <SelectItem value="performance_views">Visualizações (Soma)</SelectItem>
-                                        <SelectItem value="performance_clicks">Cliques (Soma)</SelectItem>
-                                        <SelectItem value="registered_vs_accessed">Cadastrados vs Acessados (Pro)</SelectItem>
+                                        {DATA_SOURCE_OPTIONS.map(option => (
+                                            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
                         <div className="space-y-2">
                             <Label>Agrupar por (Campo do banco)</Label>
-                            <Select value={newChart.config?.groupBy} onValueChange={v => setNewChart({ ...newChart, config: { ...newChart.config, groupBy: v ?? 'status' } })}>
+                            <Select value={newChart.config?.groupBy} onValueChange={v => updateConfig({ groupBy: v ?? 'status' })}>
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="status">Status</SelectItem>
-                                    <SelectItem value="address_city">Cidade</SelectItem>
-                                    <SelectItem value="type_id">Tipo de Imóvel</SelectItem>
-                                    <SelectItem value="is_active">Ativo / Inativo</SelectItem>
-                                    <SelectItem value="is_featured">Destaque</SelectItem>
-                                    <SelectItem value="specs:area_total">Características (Área)</SelectItem>
-                                    <SelectItem value="specs:quartos">Características (Dormitórios)</SelectItem>
-                                    <SelectItem value="amenities:piscina">Lazer (Piscina)</SelectItem>
+                                    {GROUP_BY_OPTIONS.map(option => (
+                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Cor principal</Label>
+                                <Input
+                                    type="color"
+                                    value={newChart.config?.color || DEFAULT_CHART_CONFIG.color}
+                                    onChange={(e) => updateConfig({ color: e.target.value })}
+                                    className="h-12 p-2"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Paleta de cores</Label>
+                                <Select value={newChart.config?.palette} onValueChange={(v) => updateConfig({ palette: v ?? DEFAULT_CHART_CONFIG.palette })}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PALETTE_OPTIONS.map(option => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                <div className="flex items-center gap-2">
+                                                    <span>{option.label}</span>
+                                                    <span className="flex items-center gap-1">
+                                                        {option.colors.map(color => (
+                                                            <span key={color} className="h-3 w-3 rounded-full border" style={{ backgroundColor: color }} />
+                                                        ))}
+                                                    </span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <Label>Descrição (Opcional)</Label>
@@ -312,7 +472,9 @@ export default function ChartsManagementPage() {
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
-                        <Button onClick={handleCreateChart} disabled={!canCreateChart}>Criar Gráfico</Button>
+                        <Button onClick={handleSaveChart} disabled={editingChartId ? !canEditChart : !canCreateChart}>
+                            {editingChartId ? 'Salvar Alterações' : 'Criar Gráfico'}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

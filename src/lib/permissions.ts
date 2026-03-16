@@ -30,7 +30,7 @@ export function hasPermission(profile: Profile | null | undefined, resource: Per
     if (!profile) return false
     if (profile.role === 'hakunaadm') return true
 
-    const permissions = (profile as any)?.permissions as UserPermissions | undefined
+    const permissions = resolvePermissions(profile)
     if (!permissions) return true
     if (permissions.master) return true
 
@@ -43,9 +43,30 @@ export function isMenuAllowed(profile: Profile | null | undefined, menuKey: stri
     if (!profile) return false
     if (profile.role === 'hakunaadm') return true
 
-    const permissions = (profile as any)?.permissions as UserPermissions | undefined
+    const permissions = resolvePermissions(profile)
     if (!permissions || !permissions.menus || permissions.menus.length === 0) return true
     return permissions.menus.includes(menuKey)
+}
+
+function parsePermissions(raw: any): UserPermissions | undefined {
+    if (!raw) return undefined
+    if (typeof raw === 'string') {
+        try {
+            return JSON.parse(raw) as UserPermissions
+        } catch {
+            return undefined
+        }
+    }
+    return raw as UserPermissions
+}
+
+function resolvePermissions(profile: Profile | null | undefined): UserPermissions | undefined {
+    if (!profile) return undefined
+    const userPermissions = parsePermissions((profile as any)?.permissions)
+    if (userPermissions) return userPermissions
+    const rolePermissions = parsePermissions((profile as any)?.custom_role?.permissions)
+    if (rolePermissions) return rolePermissions
+    return undefined
 }
 
 export function canManageUser(actor: Profile | null | undefined, target: Profile | null | undefined) {

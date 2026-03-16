@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { hasPermission } from '@/lib/permissions'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,6 +25,26 @@ export async function POST(request: Request) {
             )
         }
 
+        const supabaseServer = await createClient()
+        const { data: { user } } = await supabaseServer.auth.getUser()
+        if (!user) {
+            return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        }
+
+        const { data: requesterProfile, error: requesterError } = await supabaseServer
+            .from('profiles')
+            .select('id, role, permissions')
+            .eq('id', user.id)
+            .single()
+
+        if (requesterError || !requesterProfile) {
+            return NextResponse.json({ error: 'Perfil nao encontrado' }, { status: 403 })
+        }
+
+        if (!hasPermission(requesterProfile as any, 'users', 'create')) {
+            return NextResponse.json({ error: 'Sem permissao para criar usuarios' }, { status: 403 })
+        }
+
         const supabaseAdmin = getSupabaseAdmin()
         const body = await request.json()
 
@@ -30,11 +52,18 @@ export async function POST(request: Request) {
         const email = (body?.email || '').toString().trim()
         const password = (body?.password || '').toString().trim()
         const role = (body?.role || 'corretor').toString().trim()
+        const roleId = body?.roleId ? body?.roleId.toString().trim() : null
         const phone = (body?.phone || '').toString().trim()
         const forceReset = !!body?.forceReset
 
         if (!fullName || !email || !password) {
             return NextResponse.json({ error: 'Dados invalidos' }, { status: 400 })
+        }
+        if (role === 'hakunaadm' && requesterProfile.role !== 'hakunaadm') {
+            return NextResponse.json({ error: 'Sem permissao para criar administrador' }, { status: 403 })
+        }
+        if (roleId && requesterProfile.role !== 'hakunaadm') {
+            return NextResponse.json({ error: 'Sem permissao para definir role personalizada' }, { status: 403 })
         }
 
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -65,6 +94,7 @@ export async function POST(request: Request) {
                 full_name: fullName,
                 email,
                 role,
+                role_id: roleId,
                 phone,
                 force_password_reset: forceReset,
                 updated_at: new Date().toISOString(),

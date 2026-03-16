@@ -64,6 +64,10 @@ export default function ManagementPage() {
         { label: 'Meus Gráficos', path: '/admin/dashboard/my-charts' },
         { label: 'Gestão e Controle', path: '/admin/management' },
         { label: 'Status do Imóvel', path: '/admin/cms/status' },
+        { label: 'Construtoras', path: '/admin/cms/construtoras' },
+        { label: 'FAQ', path: '/admin/settings/faq' },
+        { label: 'Perfis de Acesso', path: '/admin/settings/roles' },
+        { label: 'Parcerias', path: '/admin/settings/parcerias' },
     ]
 
     const allMenus = useMemo(() => {
@@ -79,7 +83,10 @@ export default function ManagementPage() {
     useEffect(() => {
         if (!selectedUser) return
 
-        const current = (selectedUser as any)?.permissions as UserPermissions | undefined
+        const raw = (selectedUser as any)?.permissions
+        const current = typeof raw === 'string'
+            ? (() => { try { return JSON.parse(raw) as UserPermissions } catch { return undefined } })()
+            : (raw as UserPermissions | undefined)
         const normalized: UserPermissions = {
             menus: current?.menus && current.menus.length > 0 ? current.menus : allMenus.map(m => m.path),
             actions: current?.actions || {},
@@ -124,6 +131,7 @@ export default function ManagementPage() {
 
             if (error) throw error
             toast.success('Permissões salvas!')
+            setUsers(prev => prev.map(u => u.id === selectedUserId ? ({ ...u, permissions } as Profile) : u))
         } catch (error: any) {
             toast.error('Erro ao salvar permissões', { description: error.message })
         } finally {
@@ -168,11 +176,13 @@ export default function ManagementPage() {
                 <CardContent className="pt-6 space-y-4">
                     <Select value={selectedUserId} onValueChange={(v) => setSelectedUserId(v ?? '')}>
                         <SelectTrigger className="w-full max-w-md">
-                            <SelectValue placeholder="Escolha um usuário" />
+                            <span className="flex-1 text-left">
+                                {selectedUser ? (selectedUser.full_name || selectedUser.email || selectedUser.id) : 'Escolha um usuário'}
+                            </span>
                         </SelectTrigger>
                         <SelectContent>
                             {users.map(user => (
-                                <SelectItem key={user.id} value={user.id}>{user.full_name || user.email}</SelectItem>
+                                <SelectItem key={user.id} value={user.id}>{user.full_name || user.email || user.id}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>

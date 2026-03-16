@@ -40,21 +40,21 @@ export default function ResetPasswordPage() {
 
             if (authError) throw authError
 
-            // Clear the flag in profiles
-            if (profile) {
-                const { error: profileError } = await supabase
-                    .from('profiles')
-                    .update({ force_password_reset: false })
-                    .eq('id', profile.id)
+            const response = await fetch('/api/auth/complete-password-reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            })
 
-                if (profileError) throw profileError
+            const result = await response.json()
+            if (!response.ok) {
+                throw new Error(result?.error || 'Falha ao atualizar perfil')
             }
 
             if (profile) {
                 setProfile({ ...profile, force_password_reset: false })
             }
             toast.success('Senha atualizada com sucesso!')
-            await refreshProfile()
+            void refreshProfile()
             router.push('/admin')
             router.refresh()
         } catch (error: any) {

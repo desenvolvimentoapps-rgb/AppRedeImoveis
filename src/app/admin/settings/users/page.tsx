@@ -6,6 +6,7 @@ import { Profile, UserRole, RoleDefinition } from '@/types/database'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { Shield, Phone, Trash2, UserPlus, Loader2, Pencil, ShieldAlert, KeyRound } from 'lucide-react'
@@ -47,6 +48,10 @@ export default function UsersPage() {
     const [resetPassword, setResetPassword] = useState('')
     const [resetForceReset, setResetForceReset] = useState(true)
     const [roles, setRoles] = useState<RoleDefinition[]>([])
+    const [inviteToken, setInviteToken] = useState('')
+    const [inviteExpiresAt, setInviteExpiresAt] = useState<string | null>(null)
+    const [inviteLoading, setInviteLoading] = useState(false)
+    const [inviteCountdown, setInviteCountdown] = useState('')
 
     const { profile } = useAuthStore()
     const supabase = createClient()
@@ -60,8 +65,59 @@ export default function UsersPage() {
         if (profile) {
             fetchUsers()
             fetchRoles()
+            fetchInvite()
         }
     }, [profile])
+
+    useEffect(() => {
+        if (!inviteExpiresAt) return
+        const interval = setInterval(() => {
+            const now = Date.now()
+            const expires = new Date(inviteExpiresAt).getTime()
+            const diff = Math.max(0, expires - now)
+            const hours = Math.floor(diff / (1000 * 60 * 60))
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+            setInviteCountdown(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`)
+            if (diff <= 0) {
+                void fetchInvite()
+            }
+        }, 1000)
+        return () => clearInterval(interval)
+    }, [inviteExpiresAt])
+
+    const fetchInvite = async () => {
+        if (!isAdmin) return
+        setInviteLoading(true)
+        try {
+            const response = await fetch('/api/admin/invite-code')
+            const data = await response.json()
+            if (!response.ok) throw new Error(data?.error || 'Falha ao carregar token')
+            setInviteToken(data.token)
+            setInviteExpiresAt(data.expires_at)
+        } catch (error: any) {
+            toast.error('Erro ao carregar código de convite', { description: error.message })
+        } finally {
+            setInviteLoading(false)
+        }
+    }
+
+    const regenerateInvite = async () => {
+        if (!isAdmin) return
+        setInviteLoading(true)
+        try {
+            const response = await fetch('/api/admin/invite-code', { method: 'POST' })
+            const data = await response.json()
+            if (!response.ok) throw new Error(data?.error || 'Falha ao gerar token')
+            setInviteToken(data.token)
+            setInviteExpiresAt(data.expires_at)
+            toast.success('Novo código de convite gerado!')
+        } catch (error: any) {
+            toast.error('Erro ao gerar novo código', { description: error.message })
+        } finally {
+            setInviteLoading(false)
+        }
+    }
 
     const fetchRoles = async () => {
         const { data, error } = await supabase
@@ -169,18 +225,25 @@ export default function UsersPage() {
         }
         setIsActionLoading(true)
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    full_name: editingUser.full_name,
-                    role: editingUser.role,
-                    role_id: (editingUser as any).role_id || null,
-                    phone: editingUser.phone,
-                    force_password_reset: (editingUser as any).force_password_reset
-                })
-                .eq('id', editingUser.id)
+            const response = await fetch('/api/admin/users/update-profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: editingUser.id,
+                    updates: {
+                        full_name: editingUser.full_name,
+                        role: editingUser.role,
+                        role_id: (editingUser as any).role_id || null,
+                        phone: editingUser.phone,
+                        force_password_reset: (editingUser as any).force_password_reset,
+                    }
+                }),
+            })
 
-            if (error) throw error
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data?.error || 'Falha ao atualizar usuário')
+            }
 
             toast.success('Usuário atualizado com sucesso!')
             setIsEditOpen(false)
@@ -207,12 +270,19 @@ export default function UsersPage() {
             return
         }
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ role: newRole })
-                .eq('id', userId)
+            const response = await fetch('/api/admin/users/update-profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    updates: { role: newRole }
+                }),
+            })
 
-            if (error) throw error
+            const data = await response.json()
+            if (!response.ok) {
+                throw new Error(data?.error || 'Falha ao atualizar permissão')
+            }
 
             setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u))
             toast.success('Permissão atualizada!')
@@ -450,6 +520,28 @@ export default function UsersPage() {
                     </DialogContent>
                 </Dialog>
             </div>
+
+            {isAdmin && (
+                <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="bg-slate-50/50">
+                        <CardTitle>Código de Convite</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground uppercase tracking-widest">Token ativo</div>
+                            <div className="text-lg font-mono font-semibold">
+                                {inviteLoading ? 'Carregando...' : inviteToken || 'Não disponível'}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                Expira em: {inviteCountdown || '--:--:--'}
+                            </div>
+                        </div>
+                        <Button onClick={regenerateInvite} disabled={inviteLoading}>
+                            Gerar novo acesso
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
 
             <div className="border rounded-lg bg-card shadow-sm overflow-hidden">
                 <Table>

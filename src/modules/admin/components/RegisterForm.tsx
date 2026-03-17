@@ -13,6 +13,7 @@ export function RegisterForm() {
     const [fullName, setFullName] = useState('')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [inviteCode, setInviteCode] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const router = useRouter()
     const supabase = createClient()
@@ -22,6 +23,17 @@ export function RegisterForm() {
         setIsLoading(true)
 
         try {
+            const inviteResponse = await fetch('/api/auth/validate-invite', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: inviteCode }),
+            })
+
+            const inviteData = await inviteResponse.json()
+            if (!inviteResponse.ok) {
+                throw new Error(inviteData?.error || 'Código de convite inválido')
+            }
+
             // First, create the user
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email,
@@ -57,7 +69,7 @@ export function RegisterForm() {
     return (
         <Card className="w-full max-w-md mx-auto">
             <CardHeader className="space-y-1">
-                <CardTitle className="text-2xl font-bold text-center">Criar Conta Mestra</CardTitle>
+                <CardTitle className="text-2xl font-bold text-center">Criar Conta via convite</CardTitle>
                 <CardDescription className="text-center">
                     Registre-se para começar a usar o sistema
                 </CardDescription>
@@ -95,6 +107,17 @@ export function RegisterForm() {
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="inviteCode">Código de convite</Label>
+                        <Input
+                            id="inviteCode"
+                            placeholder="Informe o código"
+                            required
+                            value={inviteCode}
+                            onChange={(e) => setInviteCode(e.target.value)}
                             disabled={isLoading}
                         />
                     </div>

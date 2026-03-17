@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuthStore } from '@/hooks/useAuth'
+import { hasPermission, isMenuAllowed } from '@/lib/permissions'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -29,13 +30,65 @@ export default function MyChartsPage() {
     const [constructionPartners, setConstructionPartners] = useState<any[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [expandedChart, setExpandedChart] = useState<any>(null)
+    const [menuAccess, setMenuAccess] = useState(false)
+    const [menuAccessLoading, setMenuAccessLoading] = useState(true)
     const supabase = createClient()
+    const canViewCharts = !!profile && hasPermission(profile, 'my_charts', 'view') && menuAccess
 
     useEffect(() => {
-        if (profile) {
+        let isActive = true
+        const checkMenuAccess = async () => {
+            if (!profile) {
+                if (isActive) {
+                    setMenuAccess(false)
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+            if (profile.role === 'hakunaadm') {
+                if (isActive) {
+                    setMenuAccess(true)
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+
+            const hasExplicitPermissions = !!(profile as any)?.permissions || !!(profile as any)?.custom_role?.permissions
+            if (hasExplicitPermissions) {
+                if (isActive) {
+                    setMenuAccess(isMenuAllowed(profile, '/admin/dashboard/my-charts'))
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+
+            const { data } = await supabase
+                .from('cms_menus')
+                .select('required_roles')
+                .eq('path', '/admin/dashboard/my-charts')
+                .maybeSingle()
+
+            const roles = Array.isArray(data?.required_roles) ? data?.required_roles : []
+            if (isActive) {
+                setMenuAccess(roles.includes(profile.role))
+                setMenuAccessLoading(false)
+            }
+        }
+
+        void checkMenuAccess()
+        return () => {
+            isActive = false
+        }
+    }, [profile, supabase])
+
+    useEffect(() => {
+        if (profile && menuAccess) {
             fetchChartsAndData()
         }
-    }, [profile])
+        if (profile && !menuAccess && !menuAccessLoading) {
+            setIsLoading(false)
+        }
+    }, [profile, menuAccess, menuAccessLoading])
 
     const fetchChartsAndData = async () => {
         setIsLoading(true)
@@ -184,9 +237,21 @@ export default function MyChartsPage() {
             ? expandedChartData.reduce((total, item) => total + (Number(item?.value) || 0), 0)
             : 0
 
-    if (isLoading) return (
+    if (isLoading || menuAccessLoading) return (
         <div className="flex items-center justify-center min-h-[50vh]">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+    )
+
+    if (!canViewCharts) return (
+        <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-4">
+            <div className="p-4 rounded-full bg-slate-100 text-slate-400">
+                <AlertCircle className="w-12 h-12" />
+            </div>
+            <div className="max-w-md">
+                <h2 className="text-xl font-bold text-slate-900">Acesso restrito</h2>
+                <p className="text-muted-foreground mt-2">Você não tem permissão para visualizar estes gráficos.</p>
+            </div>
         </div>
     )
 

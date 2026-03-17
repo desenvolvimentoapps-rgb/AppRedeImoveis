@@ -202,7 +202,7 @@ export default function PropertyTypesPage() {
                                 <Input id="name" placeholder="ex: Apartamento, Casa, Terreno" value={name} onChange={e => setName(e.target.value)} required />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="name_eng">Tradução (Inglês)</Label>
+                                <Label htmlFor="name_eng">Tradu\u00e7\u00e3o (Ingl\u00eas)</Label>
                                 <Input id="name_eng" placeholder="ex: Apartment, House, Land" value={nameEng} onChange={e => setNameEng(e.target.value)} />
                             </div>
                             <div className="space-y-2">
@@ -231,7 +231,7 @@ export default function PropertyTypesPage() {
                 <div className="relative w-full md:w-80">
                     <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
                     <Input
-                        placeholder="Pesquisar por nome, tradução ou slug..."
+                        placeholder="Pesquisar por nome, tradu\u00e7\u00e3o ou slug..."
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         className="pl-9"
@@ -260,7 +260,7 @@ export default function PropertyTypesPage() {
                                 Nome {getSortIndicator('name')}
                             </TableHead>
                             <TableHead className="cursor-pointer select-none" onClick={() => handleSort('types_label_eng')}>
-                                Tradução (EN) {getSortIndicator('types_label_eng')}
+                                Tradu\u00e7\u00e3o (EN) {getSortIndicator('types_label_eng')}
                             </TableHead>
                             <TableHead className="cursor-pointer select-none" onClick={() => handleSort('slug')}>
                                 Slug {getSortIndicator('slug')}
@@ -268,7 +268,7 @@ export default function PropertyTypesPage() {
                             <TableHead className="cursor-pointer select-none" onClick={() => handleSort('is_active')}>
                                 Status {getSortIndicator('is_active')}
                             </TableHead>
-                            <TableHead className="text-right">Ações</TableHead>
+                            <TableHead className="text-right">A\u00e7\u00f5es</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>

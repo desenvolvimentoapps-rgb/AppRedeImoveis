@@ -1,12 +1,12 @@
-# Olivia Prado - Sistema Imobiliário Profissional
+## Sistema Imobiliário Profissional
 
-Sistema completo de CRM e CMS para venda de imóveis na planta, focado em alta performance e escalabilidade usando recursos 100% gratuitos.
+Sistema completo de CRM e CMS para venda de imóveis na planta, focado em alta performance e escalabilidade.
 
 ## 🚀 Tecnologias
 - **Frontend**: Next.js 14 (App Router), TypeScript, TailwindCSS, Shadcn UI
 - **Backend**: Supabase (Postgres, Auth, Storage)
 - **Estado**: Zustand + TanStack Query
-- **Integrações**: ViaCEP, Google Maps, WhatsApp
+- **Integrações**: ViaCEP, Google Maps, WhatsApp, Resend, Cloudery
 
 ## 🛠️ Instalação Local
 
@@ -23,8 +23,21 @@ Sistema completo de CRM e CMS para venda de imóveis na planta, focado em alta p
 
 3. Configure as variáveis de ambiente (`.env.local`):
    ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://ceevcdnttlbjpucrdqew.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=seu-anon-key-aqui
+   SUPABASE_URL=<SEUS DADOS AQUI>
+   SUPABASE_ANON_KEY=<SEUS DADOS AQUI>
+   SUPABASE_SERVICE_ROLE_KEY=<SEUS DADOS AQUI>
+   SUPABASE_DB_PASSWORD=<SEUS DADOS AQUI>
+   SUPABASE_PROJECT_ID=<SEUS DADOS AQUI>
+
+   NEXT_PUBLIC_SUPABASE_URL=<SEUS DADOS AQUI>
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<SEUS DADOS AQUI>
+
+   CLOUDINARY_CLOUD_NAME=<SEUS DADOS AQUI>
+   CLOUDINARY_API_KEY=<SEUS DADOS AQUI>
+   CLOUDINARY_API_SECRET=<SEUS DADOS AQUI>
+   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=<SEUS DADOS AQUI>
+
+   RESEND_API_KEY=<SEUS DADOS AQUI>
    ```
 
 4. Rode o projeto:
@@ -56,7 +69,7 @@ Para criar o primeiro acesso com poder total:
 - Gestores e Administradores podem visualizar e gerenciar o status dos leads.
 
 ### SEO e Performance
-- Slugs amigáveis gerados automaticamente: `/imoveis/apartamento-curitiba-oli-0001`.
+- Slugs amigáveis gerados automaticamente: `/imoveis/apartamento-curitiba-pr-pilarzinho-imo-0001`.
 - Meta tags dinâmicas para redes sociais e buscadores.
 
 ## ☁️ Deploy na Vercel

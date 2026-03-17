@@ -19,6 +19,16 @@ export default function ResetPasswordPage() {
     const router = useRouter()
     const supabase = createClient()
 
+    const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 8000) => {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        try {
+            return await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' })
+        } finally {
+            clearTimeout(timer)
+        }
+    }
+
     const handleReset = async (e: React.FormEvent) => {
         e.preventDefault()
 
@@ -34,25 +44,61 @@ export default function ResetPasswordPage() {
 
         setIsLoading(true)
         try {
-            const { error: authError } = await supabase.auth.updateUser({
-                password: password
-            })
+            const { data: { user } } = await supabase.auth.getUser()
+            const userId = profile?.id || user?.id
 
-            if (authError) throw authError
-
-            const response = await fetch('/api/auth/complete-password-reset', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            })
-
-            const result = await response.json()
-            if (!response.ok) {
-                throw new Error(result?.error || 'Falha ao atualizar perfil')
+            if (!userId) {
+                throw new Error('Usuario nao autenticado')
             }
 
-            if (profile) {
+            let profileUpdated = false
+            let apiError: string | null = null
+
+            try {
+                const response = await fetchWithTimeout('/api/auth/complete-password-reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId,
+                        newPassword: password,
+                        forceReset: false,
+                    }),
+                })
+
+                const result = await response.json().catch(() => ({}))
+                if (response.ok) {
+                    profileUpdated = true
+                } else {
+                    apiError = result?.error || 'Falha ao atualizar perfil'
+                }
+            } catch (error: any) {
+                apiError = error?.message || 'Falha ao atualizar perfil'
+            }
+
+            if (!profileUpdated) {
+                const { error: authError } = await supabase.auth.updateUser({
+                    password: password
+                })
+
+                if (authError) {
+                    throw new Error(apiError || authError.message || 'Falha ao atualizar senha')
+                }
+
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .update({ force_password_reset: false })
+                    .eq('id', userId)
+
+                if (profileError) {
+                    throw new Error(apiError || profileError.message || 'Falha ao atualizar perfil')
+                }
+                profileUpdated = true
+            }
+
+            if (profileUpdated && profile) {
                 setProfile({ ...profile, force_password_reset: false })
             }
+
             toast.success('Senha atualizada com sucesso!')
             void refreshProfile()
             router.push('/admin')

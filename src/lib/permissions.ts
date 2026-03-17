@@ -13,6 +13,11 @@ export type PermissionResource =
     | 'charts'
     | 'my_charts'
     | 'management'
+    | 'dashboard'
+    | 'construction_partners'
+    | 'faq'
+    | 'partnerships'
+    | 'api_access'
 
 export interface UserPermissions {
     menus?: string[]
@@ -44,7 +49,8 @@ export function isMenuAllowed(profile: Profile | null | undefined, menuKey: stri
     if (profile.role === 'hakunaadm') return true
 
     const permissions = resolvePermissions(profile)
-    if (!permissions || !permissions.menus || permissions.menus.length === 0) return true
+    if (!permissions) return true
+    if (!permissions.menus) return true
     return permissions.menus.includes(menuKey)
 }
 

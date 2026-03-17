@@ -75,8 +75,10 @@ export function AdminSidebar() {
     }
 
     const hasCustomRole = !!profile?.role_id
+    const hasExplicitPermissions = !!(profile as any)?.permissions
+    const shouldUseRoleFilter = !(hasCustomRole || hasExplicitPermissions)
     const baseMenus = menus
-        .filter(menu => profile && (hasCustomRole ? true : menu.required_roles.includes(profile.role)))
+        .filter(menu => profile && (shouldUseRoleFilter ? (menu.required_roles || []).includes(profile.role) : true))
         .filter(menu => isMenuAllowed(profile, menu.path))
         .map(menu => ({ ...menu, category: categoryForPath(menu.path) }))
 
@@ -147,13 +149,15 @@ export function AdminSidebar() {
         },
     ]
 
+    const cmsMenuPaths = new Set(menus.map(menu => menu.path))
     const visibleStaticMenus = staticMenus
-        .filter(menu => profile && (menu.required_roles as any).includes(profile.role))
+        .filter(menu => profile && (shouldUseRoleFilter ? (menu.required_roles as any).includes(profile.role) : true))
         .filter(menu => isMenuAllowed(profile, menu.path))
         .filter(menu => menu.path !== '/admin/management' || hasPermission(profile, 'management', 'view'))
         .filter(menu => menu.path !== '/admin/cms/status' || hasPermission(profile, 'property_statuses', 'view'))
         .filter(menu => menu.path !== '/admin/cms/construtoras' || hasPermission(profile, 'cms_types', 'view'))
         .filter(menu => !menu.path.startsWith('/admin/settings') || hasPermission(profile, 'settings', 'view'))
+        .filter(menu => !cmsMenuPaths.has(menu.path))
 
     const allMenus = [...baseMenus, ...visibleStaticMenus]
 

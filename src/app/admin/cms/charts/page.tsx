@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Profile } from '@/types/database'
 import { useAuthStore } from '@/hooks/useAuth'
-import { hasPermission } from '@/lib/permissions'
+import { hasPermission, isMenuAllowed } from '@/lib/permissions'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -115,15 +115,69 @@ export default function ChartsManagementPage() {
     const [isCreateOpen, setIsCreateOpen] = useState(false)
     const [editingChartId, setEditingChartId] = useState<string | null>(null)
     const [newChart, setNewChart] = useState<Partial<Chart>>(getDefaultChart())
+    const [menuAccess, setMenuAccess] = useState(false)
+    const [menuAccessLoading, setMenuAccessLoading] = useState(true)
     const { profile } = useAuthStore()
     const supabase = createClient()
     const canCreateChart = hasPermission(profile, 'charts', 'create')
     const canEditChart = hasPermission(profile, 'charts', 'edit')
     const canDeleteChart = hasPermission(profile, 'charts', 'delete')
+    const canViewChart = !!profile && hasPermission(profile, 'charts', 'view') && menuAccess
 
     useEffect(() => {
-        if (profile) fetchData()
-    }, [profile])
+        let isActive = true
+        const checkMenuAccess = async () => {
+            if (!profile) {
+                if (isActive) {
+                    setMenuAccess(false)
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+            if (profile.role === 'hakunaadm') {
+                if (isActive) {
+                    setMenuAccess(true)
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+
+            const hasExplicitPermissions = !!(profile as any)?.permissions || !!(profile as any)?.custom_role?.permissions
+            if (hasExplicitPermissions) {
+                if (isActive) {
+                    setMenuAccess(isMenuAllowed(profile, '/admin/cms/charts'))
+                    setMenuAccessLoading(false)
+                }
+                return
+            }
+
+            const { data } = await supabase
+                .from('cms_menus')
+                .select('required_roles')
+                .eq('path', '/admin/cms/charts')
+                .maybeSingle()
+
+            const roles = Array.isArray(data?.required_roles) ? data?.required_roles : []
+            if (isActive) {
+                setMenuAccess(roles.includes(profile.role))
+                setMenuAccessLoading(false)
+            }
+        }
+
+        void checkMenuAccess()
+        return () => {
+            isActive = false
+        }
+    }, [profile, supabase])
+
+    useEffect(() => {
+        if (profile && menuAccess) {
+            fetchData()
+        }
+        if (profile && !menuAccess && !menuAccessLoading) {
+            setIsLoading(false)
+        }
+    }, [profile, menuAccess, menuAccessLoading])
 
     const resetChartForm = () => {
         setNewChart(getDefaultChart())
@@ -270,11 +324,20 @@ export default function ChartsManagementPage() {
         }
     }
 
-    if (isLoading) return (
+    if (isLoading || menuAccessLoading) return (
         <div className="flex items-center justify-center min-h-[50vh]">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
     )
+
+    if (!canViewChart) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] text-center space-y-3">
+                <h2 className="text-xl font-bold">Acesso restrito</h2>
+                <p className="text-muted-foreground">Você não tem permissão para acessar esta área.</p>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">

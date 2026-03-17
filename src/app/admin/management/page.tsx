@@ -28,6 +28,12 @@ const RESOURCE_LABELS: Record<PermissionResource, string> = {
     charts: 'Gestão de Gráficos',
     my_charts: 'Meus Gráficos',
     management: 'Gestão e Controle',
+    dashboard: 'Dashboard',
+    construction_partners: 'Construtoras',
+    faq: 'FAQ',
+    partnerships: 'Parcerias',
+    api_access: 'Acessos API',
+    
 }
 
 export default function ManagementPage() {
@@ -68,6 +74,7 @@ export default function ManagementPage() {
         { label: 'FAQ', path: '/admin/settings/faq' },
         { label: 'Perfis de Acesso', path: '/admin/settings/roles' },
         { label: 'Parcerias', path: '/admin/settings/parcerias' },
+        { label: 'Acessos API', path: '/admin/settings/api-access' },
     ]
 
     const allMenus = useMemo(() => {
@@ -88,7 +95,7 @@ export default function ManagementPage() {
             ? (() => { try { return JSON.parse(raw) as UserPermissions } catch { return undefined } })()
             : (raw as UserPermissions | undefined)
         const normalized: UserPermissions = {
-            menus: current?.menus && current.menus.length > 0 ? current.menus : allMenus.map(m => m.path),
+            menus: current?.menus !== undefined ? current.menus : allMenus.map(m => m.path),
             actions: current?.actions || {},
             master: current?.master || false,
         }
@@ -124,12 +131,14 @@ export default function ManagementPage() {
 
         setIsSaving(true)
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ permissions })
-                .eq('id', selectedUserId)
+            const response = await fetch('/api/admin/users/update-permissions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: selectedUserId, permissions }),
+            })
 
-            if (error) throw error
+            const data = await response.json()
+            if (!response.ok) throw new Error(data?.error || 'Falha ao salvar permissões')
             toast.success('Permissões salvas!')
             setUsers(prev => prev.map(u => u.id === selectedUserId ? ({ ...u, permissions } as Profile) : u))
         } catch (error: any) {
@@ -242,6 +251,7 @@ export default function ManagementPage() {
                                                 <span className="uppercase tracking-wide">{action}</span>
                                             </label>
                                         ))}
+                                        
                                     </div>
                                 </div>
                             ))}
